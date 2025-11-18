@@ -400,7 +400,7 @@ def parse_invoice_data(text: str) -> dict:
 
     # Extract Date
     date_str = None
-    for line in lines:
+    for line in extraction_lines:
         date_match = re.search(r'(?:Date|Invoice\s*Date)\s*[:=]?\s*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', line, re.I)
         if date_match:
             date_str = date_match.group(1)
@@ -408,11 +408,11 @@ def parse_invoice_data(text: str) -> dict:
 
     # Extract Address (look for P.O.BOX patterns)
     address = None
-    for i, line in enumerate(lines):
+    for i, line in enumerate(extraction_lines):
         if re.search(r'P\.?\s*O\.?\s*B|P\.?O\.?\s*BOX|POB', line, re.I):
             address_parts = [line]
-            for j in range(i + 1, min(i + 4, len(lines))):
-                next_line = lines[j]
+            for j in range(i + 1, min(i + 4, len(extraction_lines))):
+                next_line = extraction_lines[j]
                 if re.match(r'^(?:Tel|Fax|Email|Phone)', next_line, re.I):
                     break
                 address_parts.append(next_line)
@@ -421,7 +421,7 @@ def parse_invoice_data(text: str) -> dict:
 
     # Extract Phone
     phone = None
-    for line in lines:
+    for line in extraction_lines:
         tel_match = re.search(r'\bTel\s*[:=]?\s*([^\n]+?)(?:\s*(?:Fax|Email)|$)', line, re.I)
         if tel_match:
             phone = tel_match.group(1).strip()
@@ -429,7 +429,7 @@ def parse_invoice_data(text: str) -> dict:
 
     # Extract Email
     email = None
-    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', normalized_text)
+    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', '\n'.join(extraction_lines))
     if email_match:
         email = email_match.group(0)
 
