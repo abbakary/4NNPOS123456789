@@ -918,6 +918,23 @@
                       inp.value = val;
                     });
 
+                    // Add monetary values as hidden fields
+                    const monetaryFields = {
+                      'subtotal': hdr.subtotal || 0,
+                      'tax_amount': hdr.tax || 0,
+                      'total_amount': hdr.total || 0
+                    };
+                    Object.keys(monetaryFields).forEach(fname => {
+                      let inp = f.querySelector('[name="'+fname+'"]');
+                      if (!inp) {
+                        inp = document.createElement('input');
+                        inp.type = 'hidden';
+                        inp.name = fname;
+                        f.appendChild(inp);
+                      }
+                      inp.value = monetaryFields[fname];
+                    });
+
                     if (hdr.date) {
                       const dateEl = f.querySelector('[name="invoice_date"]');
                       if (dateEl) {
