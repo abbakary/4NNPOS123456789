@@ -354,8 +354,8 @@ def parse_invoice_data(text: str) -> dict:
     except Exception:
         pass
 
-    # Helper function to extract field values (use extraction_lines that start from Proforma Invoice)
-    def extract_field_value(label_patterns, max_lines=3):
+    # Helper function to extract field values with improved cleaning
+    def extract_field_value(label_patterns, max_lines=3, clean_dates=True):
         patterns = label_patterns if isinstance(label_patterns, list) else [label_patterns]
 
         for pattern in patterns:
@@ -367,62 +367,82 @@ def parse_invoice_data(text: str) -> dict:
                     if match:
                         value = match.group(1).strip()
                         if value:
-                            return value
+                            # Clean dates from value if requested
+                            if clean_dates:
+                                value = re.sub(r'\s*Date\s*[:=]?\s*\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}.*$', '', value, flags=re.I).strip()
+                            return value if value else None
 
                     # Look in next lines
                     for j in range(1, min(max_lines + 1, len(extraction_lines) - i)):
                         next_line = extraction_lines[i + j].strip()
-                        if next_line and not re.match(r'^(?:Tel|Fax|Email|Address|Reference|PI|Date)', next_line, re.I):
-                            return next_line
+                        if next_line and not re.match(r'^(?:Tel|Fax|Email|Address|Reference|PI|Date|Code|Cust|Ref|Del|Page)', next_line, re.I):
+                            # Clean dates from next line if requested
+                            if clean_dates:
+                                next_line = re.sub(r'\s*Date\s*[:=]?\s*\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}.*$', '', next_line, flags=re.I).strip()
+                            return next_line if next_line else None
         return None
 
-    # Extract Code No
-    code_no = extract_field_value([
-        r'Code\s*No',
-        r'Code\s*#',
-        r'^Code\b'
-    ])
+    # Extract Code No (clean, dedicated field)
+    code_no = None
+    for line in extraction_lines:
+        match = re.search(r'Code\s*(?:No|Number|#)\s*[:=]?\s*([A-Z0-9]{3,15})', line, re.I)
+        if match:
+            code_no = match.group(1).strip()
+            break
 
     # Extract Invoice No (PI No)
     invoice_no = extract_field_value([
-        r'PI\s*No',
-        r'Proforma\s*Invoice',
-        r'Invoice\s*No',
+        r'PI\s*(?:No|Number)',
+        r'Invoice\s*(?:No|Number)',
         r'^PI\b'
-    ])
+    ], clean_dates=False)
 
-    # Extract Customer Name
-    customer_name = extract_field_value([
-        r'Customer\s*Name',
-        r'Bill\s*To',
-        r'Sold\s*To'
-    ])
+    # Extract Customer Name (clean - no dates, no extra labels)
+    customer_name = None
+    for line in extraction_lines:
+        match = re.search(r'Customer\s*(?:Name)?[:=]?\s*([A-Z][A-Z0-9\s\&\.\,\-]{2,}?)(?:\s*Date|\s*P\.?O\.?\s*BOX|\s*Tel|$)', line, re.I)
+        if match:
+            customer_name = match.group(1).strip()
+            # Remove trailing date-like patterns
+            customer_name = re.sub(r'\s*Date.*$', '', customer_name, flags=re.I).strip()
+            break
 
-    # Extract Date
+    # Extract Date (dedicated extraction)
     date_str = None
     for line in extraction_lines:
-        date_match = re.search(r'(?:Date|Invoice\s*Date)\s*[:=]?\s*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', line, re.I)
-        if date_match:
-            date_str = date_match.group(1)
+        # Look for Date label and its value
+        match = re.search(r'(?:Date|Invoice\s*Date|Ref\s*Date|Del\.\s*Date)\s*[:=]?\s*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', line, re.I)
+        if match:
+            date_str = match.group(1)
             break
 
-    # Extract Address (look for P.O.BOX patterns)
+    # Extract Address (clean - P.O. BOX address without dates)
     address = None
     for i, line in enumerate(extraction_lines):
-        if re.search(r'P\.?\s*O\.?\s*B|P\.?O\.?\s*BOX|POB', line, re.I):
+        if re.search(r'(?:Address|P\.?\s*O\.?\s*B(?:OX)?|POB)', line, re.I):
             address_parts = [line]
+            # Remove the label part
+            address_parts[0] = re.sub(r'^(?:Address|P\.?\s*O\.?\s*B(?:OX)?|POB)\s*[:=]?\s*', '', address_parts[0], flags=re.I).strip()
+
+            # Collect next lines until we hit a label (Tel, Fax, Email, Cust Ref, etc)
             for j in range(i + 1, min(i + 4, len(extraction_lines))):
                 next_line = extraction_lines[j]
-                if re.match(r'^(?:Tel|Fax|Email|Phone)', next_line, re.I):
+                # Stop if we hit another labeled field
+                if re.match(r'^(?:Tel|Fax|Email|Phone|Cust|Ref|Del|Kind|Type|Payment|Delivery)', next_line, re.I):
                     break
-                address_parts.append(next_line)
-            address = ' '.join(address_parts)
-            break
+                # Clean any inline dates
+                next_line = re.sub(r'\s*(?:Ref\s*Date|Del\.\s*Date)\s*[:=]?\s*\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}.*$', '', next_line, flags=re.I).strip()
+                if next_line:
+                    address_parts.append(next_line)
+
+            address = ' '.join(filter(None, address_parts))
+            if address:
+                break
 
     # Extract Phone
     phone = None
     for line in extraction_lines:
-        tel_match = re.search(r'\bTel\s*[:=]?\s*([^\n]+?)(?:\s*(?:Fax|Email)|$)', line, re.I)
+        tel_match = re.search(r'(?:Tel|Telephone|Phone)\s*[:=]?\s*([\+\d][\d\s\-/\(\)]{5,})', line, re.I)
         if tel_match:
             phone = tel_match.group(1).strip()
             break
@@ -433,11 +453,15 @@ def parse_invoice_data(text: str) -> dict:
     if email_match:
         email = email_match.group(0)
 
-    # Extract Reference
-    reference = extract_field_value([
-        r'Reference',
-        r'Ref\.?'
-    ])
+    # Extract Reference (clean, dedicated field)
+    reference = None
+    for line in extraction_lines:
+        match = re.search(r'(?:Reference|Ref\.?)\s*[:=]?\s*([A-Z0-9\s\-\/]{2,20})', line, re.I)
+        if match:
+            reference = match.group(1).strip()
+            # Remove date patterns that might be included
+            reference = re.sub(r'\s*(?:Date|Ref\s*Date|Del\.\s*Date).*$', '', reference, flags=re.I).strip()
+            break
 
     # Extract monetary values (use extraction_lines that start from Proforma Invoice)
     def find_amount(label_patterns):
