@@ -348,6 +348,40 @@
                 </div>
               </div>
 
+              <!-- Line Items from Extraction -->
+              <div class="card mb-3">
+                <div class="card-header bg-light">
+                  <h6 class="mb-0">Line Items from Invoice</h6>
+                </div>
+                <div class="card-body">
+                  <div id="lineItemsContainer" style="display: none;">
+                    <div class="table-responsive">
+                      <table class="table table-sm table-hover">
+                        <thead class="table-light">
+                          <tr>
+                            <th style="width: 10%;">Code</th>
+                            <th style="width: 35%;">Description</th>
+                            <th style="width: 10%;">Unit</th>
+                            <th style="width: 10%;">Qty</th>
+                            <th style="width: 15%;">Unit Price</th>
+                            <th style="width: 15%;">Line Total</th>
+                          </tr>
+                        </thead>
+                        <tbody id="lineItemsTableBody">
+                        </tbody>
+                      </table>
+                    </div>
+                    <small class="text-muted d-block mt-2">These line items were automatically extracted from the invoice PDF. You can edit them in the table below.</small>
+                  </div>
+                  <div id="noLineItemsMsg" class="alert alert-info mb-0">
+                    <i class="fa fa-info-circle me-2"></i>No line items extracted. You can add them manually after creating the invoice.
+                  </div>
+                </div>
+              </div>
+
+              <!-- Hidden fields for line items (will be populated by JavaScript) -->
+              <div id="lineItemsHiddenFields"></div>
+
               <div class="card mb-3">
                 <div class="card-header bg-light">
                   <h6 class="mb-0">Service Selection (optional)</h6>
