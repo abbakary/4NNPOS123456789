@@ -689,41 +689,33 @@ def parse_item_complete(item_lines, item_number):
         unit = unit_match.group(1).upper()
 
     # Extract numbers in order without any calculations
-    # Assume order is: Qty, Rate, Value (as they appear in the document)
+    # Strategy: Find qty (integer), then first monetary amount = Rate, second monetary amount = Value
     quantity = 1
     rate = Decimal('0')
     value = Decimal('0')
 
-    # Extract first 3 numbers in order
-    if len(numbers) >= 3:
-        # First small integer (< 100) = quantity
-        for n in numbers:
-            if n['is_integer'] and 0 < n['value'] < 100:
-                quantity = int(n['value'])
-                break
+    # Separate by type
+    integers = [n for n in numbers if n['is_integer']]
+    monetaries = [n for n in numbers if n['is_monetary']]
 
-        # Rest are likely rate and value in order
-        non_qty_numbers = [n for n in numbers if not (n['is_integer'] and 0 < n['value'] < 100)]
-        if len(non_qty_numbers) >= 2:
-            rate = Decimal(str(non_qty_numbers[0]['value']))
-            value = Decimal(str(non_qty_numbers[1]['value']))
-            logger.info(f"Fallback extraction with 3+ numbers - Qty: {quantity}, Rate: {rate}, Value: {value} (extracted as-is)")
-        elif len(non_qty_numbers) >= 1:
-            rate = Decimal(str(non_qty_numbers[0]['value']))
-            value = rate
-            logger.info(f"Fallback extraction with 2 numbers - Qty: {quantity}, Rate: {rate}, Value: {rate} (no calculation)")
-    elif len(numbers) >= 2:
-        # Only 2 numbers - assume qty and rate
-        for n in numbers:
-            if n['is_integer'] and 0 < n['value'] < 100:
-                quantity = int(n['value'])
-                break
+    # Extract quantity (smallest integer, preferably)
+    if integers:
+        quantity = int(min([n['value'] for n in integers]))
 
-        non_qty_numbers = [n for n in numbers if not (n['is_integer'] and 0 < n['value'] < 100)]
-        if non_qty_numbers:
-            rate = Decimal(str(non_qty_numbers[0]['value']))
-            value = rate
-            logger.info(f"Fallback extraction with 2 numbers - Qty: {quantity}, Rate: {rate}, Value: {rate} (no calculation)")
+    # Extract rate and value from monetary amounts (should be in order as they appear)
+    # Sort by position to maintain order in document
+    monetaries_sorted = sorted(monetaries, key=lambda x: x.get('position', 0))
+
+    if len(monetaries_sorted) >= 2:
+        # First monetary = Rate, Second = Value
+        rate = Decimal(str(monetaries_sorted[0]['value']))
+        value = Decimal(str(monetaries_sorted[1]['value']))
+        logger.info(f"Fallback extraction - Qty: {quantity}, Rate: {rate}, Value: {value} (extracted in document order, no calculation)")
+    elif len(monetaries_sorted) >= 1:
+        # Only one monetary amount - could be either rate or value
+        rate = Decimal(str(monetaries_sorted[0]['value']))
+        value = rate  # Use same value, no calculation
+        logger.info(f"Fallback extraction (single monetary) - Qty: {quantity}, Rate: {rate}, Value: {value} (no calculation)")
     
     # Build description
     description = full_text
