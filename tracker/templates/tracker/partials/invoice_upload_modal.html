@@ -1,291 +1,161 @@
-<!-- Unified Invoice Upload & Extraction Modal - Reusable for all order pages -->
+<!-- Invoice Upload & Extraction Modal - Extract-Only (No Manual Entry) -->
 <div class="modal fade" id="uploadInvoiceModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header bg-light border-bottom">
         <h5 class="modal-title">
-          <i class="fa fa-file-invoice me-2"></i>Create Invoice for Order {{ order.order_number }}
+          <i class="fa fa-file-invoice me-2"></i>Upload & Extract Invoice for Order {{ order.order_number }}
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
 
-      <form id="manualInvoiceForm" method="post">
+      <form id="invoiceUploadForm" method="post" action="{% url 'tracker:api_create_invoice_from_upload' %}">
         {% csrf_token %}
-        <input type="hidden" name="action" value="create_invoice_manual">
         <input type="hidden" name="selected_order_id" value="{{ order.id }}">
         {% if vehicle and vehicle.plate_number %}<input type="hidden" name="plate" value="{{ vehicle.plate_number }}">{% endif %}
         {% if order.customer %}<input type="hidden" name="customer_id" value="{{ order.customer.id }}">{% endif %}
-        
-        <!-- Hidden fields for additional details -->
-        <input type="hidden" name="payment_method" id="hiddenPaymentMethod" value="">
-        <input type="hidden" name="delivery_terms" id="hiddenDeliveryTerms" value="">
-        <input type="hidden" name="attended_by" id="hiddenAttendedBy" value="">
-        <input type="hidden" name="kind_attention" id="hiddenKindAttention" value="">
-        <input type="hidden" name="remarks" id="hiddenRemarks" value="">
-        <input type="hidden" name="notes" id="hiddenNotes" value="">
+        {% if order.customer %}<input type="hidden" name="pre_selected_customer_id" value="{{ order.customer.id }}">{% endif %}
 
-        <!-- Quick Info Bar -->
-        <div class="alert alert-info mb-3 border-0" role="alert">
-          <div class="d-flex align-items-center">
-            <i class="fa fa-lightbulb me-3" style="font-size: 18px;"></i>
-            <div>
-              <strong>Tip:</strong> Upload a PDF invoice to auto-extract data, or fill in the form manually. All fields are editable.
-            </div>
-          </div>
-        </div>
+        <!-- Hidden fields for extracted data -->
+        <div id="extractedHiddenFields"></div>
 
         <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+          <!-- Info Alert -->
+          <div class="alert alert-info mb-3 border-0" role="alert">
+            <div class="d-flex align-items-center">
+              <i class="fa fa-lightbulb me-3" style="font-size: 18px;"></i>
+              <div>
+                <strong>Upload Invoice PDF:</strong> Upload your invoice document to automatically extract customer and payment information. All extracted data will be displayed below for review before creating the invoice.
+              </div>
+            </div>
+          </div>
+
           <!-- Upload Section -->
           <div class="card mb-3">
             <div class="card-header bg-light">
-              <strong><i class="fa fa-file-upload me-2"></i>Upload PDF (Optional)</strong>
+              <strong><i class="fa fa-file-upload me-2"></i>Select PDF File</strong>
             </div>
             <div class="card-body">
               <div class="mb-3">
-                <label class="form-label">Select PDF File</label>
-                <input type="file" id="startedOrderInvoiceFile" class="form-control" accept=".pdf" data-max-file-size="50485760">
-                <small class="text-muted">PDF files only. Max 50MB. Leave empty to enter data manually.</small>
+                <label class="form-label">Invoice PDF File *</label>
+                <input type="file" id="invoiceFile" class="form-control" accept=".pdf" data-max-file-size="50485760" required>
+                <small class="text-muted">PDF files only. Maximum 50MB.</small>
               </div>
 
-              <div id="startedUploadError" class="alert alert-danger" style="display:none" role="alert"></div>
+              <div id="uploadError" class="alert alert-danger" style="display:none" role="alert"></div>
               <div id="extractionSuccess" class="alert alert-success" style="display:none" role="alert">
-                <i class="fa fa-check-circle me-2"></i>Invoice data extracted successfully! The form below has been auto-populated with editable fields.
+                <i class="fa fa-check-circle me-2"></i>Invoice data extracted successfully! Review the extracted information below.
               </div>
-              <div id="startedUploadProgress" class="progress" style="display:none;">
-                <div class="progress-bar progress-bar-striped progress-bar-animated" id="startedUploadProgressBar" role="progressbar" style="width: 0%"></div>
+              <div id="uploadProgress" class="progress" style="display:none;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" id="uploadProgressBar" role="progressbar" style="width: 0%"></div>
               </div>
 
-              <button type="button" id="startedUploadBtn" class="btn btn-primary">
+              <button type="button" id="uploadBtn" class="btn btn-primary">
                 <i class="fa fa-upload me-2"></i>Upload & Extract
               </button>
             </div>
           </div>
 
-          <!-- Hidden fields for extracted monetary values and seller info -->
-          <div id="extractedHiddenFields"></div>
-
           <!-- Extracted Data Preview -->
-          <div id="uploadedInvoicePreview" style="display:none;" class="card mb-3">
+          <div id="extractedDataPreview" style="display:none;" class="card mb-3">
             <div class="card-header bg-light">
-              <strong><i class="fa fa-check-circle me-2 text-success"></i>Extracted Data Preview</strong>
-              <small class="text-muted ms-2">Edit the fields below as needed</small>
+              <strong><i class="fa fa-check-circle me-2 text-success"></i>Extracted Information</strong>
+              <small class="text-muted ms-2">Review before confirming</small>
             </div>
             <div class="card-body" style="max-height: 400px; overflow-y: auto; background-color: #f8f9fa;">
-              <div class="row g-2">
-                <div class="col-md-6">
-                  <small class="text-muted d-block">Customer Name</small>
-                  <p id="previewCustomerName" class="mb-2">-</p>
+              <!-- Customer Information -->
+              <div class="mb-3">
+                <h6 class="text-muted mb-2"><i class="fa fa-user me-2"></i>Customer</h6>
+                <div class="row g-2">
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Name</small>
+                    <p id="previewCustomerName" class="mb-2 fw-medium">-</p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Phone</small>
+                    <p id="previewCustomerPhone" class="mb-2 fw-medium">-</p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Email</small>
+                    <p id="previewCustomerEmail" class="mb-2">-</p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Address</small>
+                    <p id="previewCustomerAddress" class="mb-2">-</p>
+                  </div>
                 </div>
-                <div class="col-md-6">
-                  <small class="text-muted d-block">Phone</small>
-                  <p id="previewCustomerPhone" class="mb-2">-</p>
+              </div>
+
+              <hr class="my-3">
+
+              <!-- Invoice Information -->
+              <div class="mb-3">
+                <h6 class="text-muted mb-2"><i class="fa fa-file-invoice me-2"></i>Invoice Details</h6>
+                <div class="row g-2">
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Invoice Number</small>
+                    <p id="previewInvoiceNo" class="mb-2"><strong>-</strong></p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Invoice Date</small>
+                    <p id="previewInvoiceDate" class="mb-2"><strong>-</strong></p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Code No</small>
+                    <p id="previewCodeNo" class="mb-2">-</p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Reference</small>
+                    <p id="previewReference" class="mb-2">-</p>
+                  </div>
                 </div>
-                <div class="col-md-6">
-                  <small class="text-muted d-block">Email</small>
-                  <p id="previewCustomerEmail" class="mb-2">-</p>
-                </div>
-                <div class="col-md-6">
-                  <small class="text-muted d-block">Address</small>
-                  <p id="previewCustomerAddress" class="mb-2">-</p>
-                </div>
-                <div class="col-md-6">
-                  <small class="text-muted d-block">Invoice Number / PI No</small>
-                  <p id="previewInvoiceNo" class="mb-2"><strong>-</strong></p>
-                </div>
-                <div class="col-md-6">
-                  <small class="text-muted d-block">Invoice Date</small>
-                  <p id="previewInvoiceDate" class="mb-2"><strong>-</strong></p>
-                </div>
-                <div class="col-md-6">
-                  <small class="text-muted d-block">Code No</small>
-                  <p id="previewCodeNo" class="mb-2">-</p>
-                </div>
-                <div class="col-md-6">
-                  <small class="text-muted d-block">Reference</small>
-                  <p id="previewReference" class="mb-2">-</p>
-                </div>
-                <div class="col-md-4">
-                  <small class="text-muted d-block">Subtotal</small>
-                  <p id="previewSubtotal" class="mb-0">-</p>
-                </div>
-                <div class="col-md-4">
-                  <small class="text-muted d-block">Tax/VAT</small>
-                  <p id="previewTax" class="mb-0">-</p>
-                </div>
-                <div class="col-md-4">
-                  <small class="text-muted d-block">Total</small>
-                  <p id="previewTotal" class="mb-0 fs-6"><strong>-</strong></p>
+              </div>
+
+              <hr class="my-3">
+
+              <!-- Payment Information -->
+              <div class="mb-0">
+                <h6 class="text-muted mb-2"><i class="fa fa-money-bill me-2"></i>Payment Summary</h6>
+                <div class="row g-2">
+                  <div class="col-md-4">
+                    <small class="text-muted d-block">Subtotal</small>
+                    <p id="previewSubtotal" class="mb-0 fw-medium">-</p>
+                  </div>
+                  <div class="col-md-4">
+                    <small class="text-muted d-block">Tax/VAT</small>
+                    <p id="previewTax" class="mb-0 fw-medium">-</p>
+                  </div>
+                  <div class="col-md-4">
+                    <small class="text-muted d-block">Total Amount</small>
+                    <p id="previewTotal" class="mb-0 fs-6"><strong class="text-success">-</strong></p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Line Items (Extracted) - CORRECTED WITH VALUE COLUMN -->
+          <!-- Extracted Line Items -->
           <div id="extractedLineItemsSection" class="card mb-3" style="display:none;">
-            <div class="card-header bg-light d-flex justify-content-between align-items-center">
-              <div>
-                <strong><i class="fa fa-list me-2"></i>Line Items</strong>
-                <small class="text-muted ms-2">Review and adjust quantities and prices</small>
-              </div>
-              <button type="button" id="addLineItemRowBtn" class="btn btn-sm btn-outline-primary">
-                <i class="fa fa-plus me-1"></i>Add Row
-              </button>
+            <div class="card-header bg-light">
+              <strong><i class="fa fa-list me-2"></i>Line Items</strong>
+              <small class="text-muted ms-2">Items from invoice</small>
             </div>
             <div class="card-body p-0">
               <div class="table-responsive">
-                <table class="table table-sm table-bordered mb-0 line-items-table">
+                <table class="table table-sm table-bordered mb-0 extracted-line-items-table">
                   <thead class="table-light">
                     <tr style="background-color: #f8f9fa;">
-                      <th class="line-item-col-num">#</th>
-                      <th class="line-item-col-code">Code</th>
-                      <th class="line-item-col-desc">Description</th>
-                      <th class="line-item-col-unit">Unit</th>
-                      <th class="line-item-col-qty">Qty</th>
-                      <th class="line-item-col-rate">Unit Price</th>
-                      <th class="line-item-col-value">Value</th>
-                      <th class="line-item-col-actions">Actions</th>
+                      <th style="width: 5%; text-align: center;">#</th>
+                      <th style="width: 10%;">Code</th>
+                      <th style="width: 40%; word-break: break-word;">Description</th>
+                      <th style="width: 10%;">Unit</th>
+                      <th style="width: 8%; text-align: center;">Qty</th>
+                      <th style="width: 12%; text-align: right;">Unit Price</th>
+                      <th style="width: 15%; text-align: right;">Total</th>
                     </tr>
                   </thead>
-                  <tbody id="lineItemRowsBody" class="line-items-body"></tbody>
+                  <tbody id="lineItemsBody" class="extracted-line-items-body"></tbody>
                 </table>
-              </div>
-            </div>
-          </div>
-
-          <!-- Existing Customer Alert -->
-          <div id="existingCustomerAlert" class="alert alert-info alert-dismissible fade show mb-3" style="display:none;">
-            <i class="fa fa-info-circle me-2"></i>
-            <strong>Existing Customer Found!</strong> A customer with this phone number already exists.
-            <span id="existingCustomerName"></span>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-          </div>
-
-          <!-- Customer Information Section -->
-          <div class="card mb-3">
-            <div class="card-header bg-light">
-              <strong><i class="fa fa-user me-2"></i>Customer Information</strong>
-            </div>
-            <div class="card-body">
-              <div class="row mb-2">
-                <div class="col-md-6">
-                  <label class="form-label">Full Name *</label>
-                  <input type="text" name="customer_name" class="form-control" id="manualCustomerName" value="{{ order.customer.full_name }}" placeholder="Customer full name" required>
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label">Phone <small class="text-muted">(optional)</small></label>
-                  <input type="tel" name="customer_phone" class="form-control" id="manualCustomerPhone" placeholder="Phone number" value="{{ order.customer.phone|default:'' }}">
-                </div>
-              </div>
-              <div class="row mb-2">
-                <div class="col-md-6">
-                  <label class="form-label">Email</label>
-                  <input type="email" name="customer_email" class="form-control" placeholder="email@example.com" value="{{ order.customer.email|default:'' }}">
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label">Customer Type *</label>
-                  <select name="customer_type" id="invoiceCustomerType" class="form-select" required>
-                    <option value="">Select customer type</option>
-                    <option value="personal" {% if order.customer.customer_type == 'personal' %}selected{% endif %}>Personal</option>
-                    <option value="company" {% if order.customer.customer_type == 'company' %}selected{% endif %}>Private Company</option>
-                    <option value="ngo" {% if order.customer.customer_type == 'ngo' %}selected{% endif %}>NGO</option>
-                    <option value="government" {% if order.customer.customer_type == 'government' %}selected{% endif %}>Government</option>
-                  </select>
-                </div>
-              </div>
-              
-              <!-- Personal Subtype (shown only for personal type) -->
-              <div class="row mb-2" id="personalSubtypeWrapper" style="display:none;">
-                <div class="col-md-6">
-                  <label class="form-label">Personal Subtype</label>
-                  <select name="customer_personal_subtype" class="form-select">
-                    <option value="">Select subtype</option>
-                    <option value="owner">Owner</option>
-                    <option value="driver">Driver</option>
-                  </select>
-                </div>
-              </div>
-
-              <!-- Organization Fields (shown for non-personal types) -->
-              <div class="row mb-2" id="organizationDetailsWrapper" style="display:none;">
-                <div class="col-md-6">
-                  <label class="form-label">Organization Name</label>
-                  <input type="text" name="customer_organization_name" class="form-control" id="organizationNameField" placeholder="Organization name" value="{{ order.customer.organization_name|default:'' }}">
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label">Tax Number</label>
-                  <input type="text" name="customer_tax_number" class="form-control" id="taxNumberField" placeholder="Tax identification number" value="{{ order.customer.tax_number|default:'' }}">
-                </div>
-              </div>
-
-              <div class="row mb-2">
-                <div class="col-md-12">
-                  <label class="form-label">Address</label>
-                  <input type="text" name="customer_address" class="form-control" placeholder="Customer address" value="{{ order.customer.address|default:'' }}">
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Invoice Information Section -->
-          <div class="card mb-3">
-            <div class="card-header bg-light">
-              <strong><i class="fa fa-file-invoice me-2"></i>Invoice Information</strong>
-            </div>
-            <div class="card-body">
-              <div class="row mb-2">
-                <div class="col-md-6">
-                  <label class="form-label fw-bold">Invoice Number / PI No</label>
-                  <input type="text" name="invoice_number" class="form-control" id="invoiceNumberField" placeholder="e.g., INV-001 or PI-1765632">
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label fw-bold">Invoice Date</label>
-                  <input type="date" name="invoice_date" class="form-control" value="{% now 'Y-m-d' %}" required>
-                </div>
-              </div>
-              <div class="row mb-2">
-                <div class="col-md-6">
-                  <label class="form-label">Code No. <small class="text-muted">(optional)</small></label>
-                  <input type="text" name="code_no" class="form-control" id="codeNoField" placeholder="e.g., A01696">
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label">Reference <small class="text-muted">(optional)</small></label>
-                  <input type="text" name="reference" class="form-control" id="referenceField" placeholder="e.g., T 211 EDF">
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Payment Information Section -->
-          <div class="card mb-3">
-            <div class="card-header bg-light">
-              <strong><i class="fa fa-money me-2"></i>Payment Information</strong>
-            </div>
-            <div class="card-body">
-              <div class="row mb-2">
-                <div class="col-md-6">
-                  <label class="form-label fw-bold">Subtotal</label>
-                  <div class="input-group">
-                    <span class="input-group-text">{{ order.branch.code|default:"TSH" }}</span>
-                    <input type="number" name="subtotal" class="form-control" step="0.01" min="0" placeholder="0.00">
-                  </div>
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label fw-bold">Tax/VAT</label>
-                  <div class="input-group">
-                    <span class="input-group-text">{{ order.branch.code|default:"TSH" }}</span>
-                    <input type="number" name="tax_amount" class="form-control" step="0.01" min="0" placeholder="0.00">
-                  </div>
-                </div>
-              </div>
-
-              <div class="row mb-2">
-                <div class="col-md-12">
-                  <label class="form-label fw-bold">Total Amount *</label>
-                  <div class="input-group">
-                    <span class="input-group-text">{{ order.branch.code|default:"TSH" }}</span>
-                    <input type="number" name="total_amount" class="form-control" step="0.01" min="0" placeholder="0.00" required>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -295,17 +165,14 @@
           <div class="text-center w-100 mb-3">
             <p class="text-muted small mb-0">
               <i class="fa fa-info-circle me-1"></i>
-              Fill in the required fields (marked with *), then click the button below to create the invoice.
+              Upload an invoice PDF to extract data. Review the information and click Create to save the invoice.
             </p>
           </div>
           <div class="w-100 d-flex gap-2" style="margin-top: -15px;">
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
               <i class="fa fa-times me-2"></i>Cancel
             </button>
-            <button type="button" id="addAnotherServiceBtn" class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#addServiceItemModal">
-              <i class="fa fa-plus me-2"></i>Add Item/Service
-            </button>
-            <button type="submit" class="btn btn-success btn-lg flex-grow-1" style="font-weight: 600;">
+            <button type="submit" class="btn btn-success btn-lg flex-grow-1" id="createInvoiceBtn" style="font-weight: 600;" disabled>
               <i class="fa fa-check-circle me-2"></i>Create Invoice
             </button>
           </div>
@@ -316,208 +183,67 @@
 </div>
 
 <style>
-/* Line items table - proper layout that handles all columns including Value */
-.line-items-table {
+.extracted-line-items-table {
   font-size: 0.85rem;
   width: 100%;
   table-layout: fixed;
 }
 
-.line-items-table thead {
+.extracted-line-items-table thead {
   background-color: #f8f9fa;
   position: sticky;
   top: 0;
 }
 
-.line-items-table th,
-.line-items-table td {
+.extracted-line-items-table th,
+.extracted-line-items-table td {
   padding: 0.6rem 0.4rem;
   vertical-align: middle;
   border: 1px solid #dee2e6;
 }
 
-.line-items-table th {
+.extracted-line-items-table th {
   font-weight: 600;
   text-align: left;
   background-color: #f8f9fa;
 }
 
-/* Column width definitions - using percentages for fixed layout */
-.line-item-col-num {
-  width: 4%;
-  text-align: center;
+.extracted-line-items-table td {
+  background-color: #fff;
 }
 
-.line-item-col-code {
-  width: 10%;
-}
-
-.line-item-col-desc {
-  width: 35%;
-  word-break: break-word;
-  white-space: normal;
-  overflow-wrap: break-word;
-}
-
-.line-item-col-unit {
-  width: 8%;
-}
-
-.line-item-col-qty {
-  width: 8%;
-}
-
-.line-item-col-rate {
-  width: 12%;
-}
-
-.line-item-col-value {
-  width: 15%;
-  font-weight: 600;
-  text-align: right;
-  background-color: #f8f9fa;
-  font-family: 'Courier New', monospace;
-}
-
-.line-item-col-actions {
-  width: 8%;
-  text-align: center;
-}
-
-/* Input styling within table */
-.line-items-table input[type="text"],
-.line-items-table input[type="number"] {
-  width: 100%;
-  padding: 0.4rem 0.3rem;
-  font-size: 0.85rem;
-  border: 1px solid #dee2e6;
-  border-radius: 0.25rem;
-  font-family: inherit;
-}
-
-.line-items-table input[type="text"]::placeholder,
-.line-items-table input[type="number"]::placeholder {
-  font-size: 0.8rem;
-  color: #999;
-}
-
-.line-items-table input[type="text"]:focus,
-.line-items-table input[type="number"]:focus {
-  border-color: #80bdff;
-  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-  outline: none;
-}
-
-/* Button styling */
-.line-items-table .remove-line-item {
-  padding: 0.3rem 0.5rem;
-  font-size: 1rem;
-  line-height: 1;
-  border: 1px solid #dc3545;
-  background-color: white;
-  color: #dc3545;
-  cursor: pointer;
-}
-
-.line-items-table .remove-line-item:hover {
-  background-color: #dc3545;
-  color: white;
-}
-
-/* Value display styling */
-.item-value-display {
-  font-weight: 600;
-  color: #2c5aa0;
-  font-family: 'Courier New', monospace;
-}
-
-/* Responsive adjustments */
 @media (max-width: 1200px) {
-  .line-items-table {
+  .extracted-line-items-table {
     font-size: 0.8rem;
-  }
-
-  .line-item-col-desc {
-    width: 30%;
-  }
-
-  .line-item-col-code {
-    width: 8%;
-  }
-
-  .line-item-col-rate {
-    width: 10%;
-  }
-
-  .line-item-col-value {
-    width: 12%;
   }
 }
 
 @media (max-width: 768px) {
-  .line-items-table {
+  .extracted-line-items-table {
     font-size: 0.75rem;
   }
 
-  .line-items-table th,
-  .line-items-table td {
+  .extracted-line-items-table th,
+  .extracted-line-items-table td {
     padding: 0.4rem 0.25rem;
-  }
-
-  .line-items-table input[type="text"],
-  .line-items-table input[type="number"] {
-    padding: 0.3rem 0.2rem;
-    font-size: 0.75rem;
-  }
-
-  .line-item-col-num {
-    width: 5%;
-  }
-
-  .line-item-col-code {
-    width: 8%;
-  }
-
-  .line-item-col-desc {
-    width: 25%;
-  }
-
-  .line-item-col-unit {
-    width: 6%;
-  }
-
-  .line-item-col-qty {
-    width: 6%;
-  }
-
-  .line-item-col-rate {
-    width: 8%;
-  }
-
-  .line-item-col-value {
-    width: 10%;
-  }
-
-  .line-item-col-actions {
-    width: 8%;
   }
 }
 </style>
+
 <script>
-// Invoice Upload Modal - Extraction Handler
 (function() {
-  const fileInput = document.getElementById('startedOrderInvoiceFile');
-  const uploadBtn = document.getElementById('startedUploadBtn');
-  const errorBox = document.getElementById('startedUploadError');
+  const fileInput = document.getElementById('invoiceFile');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const errorBox = document.getElementById('uploadError');
   const successMsg = document.getElementById('extractionSuccess');
-  const progressWrap = document.getElementById('startedUploadProgress');
-  const progressBar = document.getElementById('startedUploadProgressBar');
-  const previewSection = document.getElementById('uploadedInvoicePreview');
+  const progressWrap = document.getElementById('uploadProgress');
+  const progressBar = document.getElementById('uploadProgressBar');
+  const previewSection = document.getElementById('extractedDataPreview');
   const lineItemsSection = document.getElementById('extractedLineItemsSection');
-  const lineItemsBody = document.getElementById('lineItemRowsBody');
+  const lineItemsBody = document.getElementById('lineItemsBody');
   const hiddenFieldsDiv = document.getElementById('extractedHiddenFields');
-  const manualForm = document.getElementById('manualInvoiceForm');
-  const addRowBtn = document.getElementById('addLineItemRowBtn');
+  const invoiceForm = document.getElementById('invoiceUploadForm');
+  const createInvoiceBtn = document.getElementById('createInvoiceBtn');
 
   if (!uploadBtn) return;
 
@@ -536,6 +262,63 @@
     if (progressBar) progressBar.style.width = Math.max(0, Math.min(100, p)) + '%';
     if (progressWrap) progressWrap.style.display = p > 0 && p < 100 ? 'block' : (p >= 100 ? 'block' : 'none');
   }
+
+  invoiceForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    if (!fileInput.files || !fileInput.files[0]) {
+      errorBox.style.display = 'block';
+      errorBox.innerHTML = '<i class="fa fa-warning me-2"></i>No PDF file was uploaded or extracted.';
+      errorBox.className = 'alert alert-warning';
+      return;
+    }
+
+    createInvoiceBtn.disabled = true;
+    const originalBtnText = createInvoiceBtn.innerHTML;
+    createInvoiceBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-2"></i>Creating...';
+
+    try {
+      const formData = new FormData(invoiceForm);
+
+      const response = await fetch(invoiceForm.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        errorBox.style.display = 'none';
+        successMsg.innerHTML = '<i class="fa fa-check-circle me-2"></i>Invoice created successfully! Redirecting...';
+        successMsg.style.display = 'block';
+
+        setTimeout(() => {
+          if (data.redirect_url) {
+            window.location.href = data.redirect_url;
+          } else {
+            window.location.reload();
+          }
+        }, 1500);
+      } else {
+        throw new Error(data.message || 'Failed to create invoice');
+      }
+    } catch (err) {
+      errorBox.style.display = 'block';
+      errorBox.innerHTML = '<i class="fa fa-exclamation-triangle me-2"></i>' + (err?.message || 'Failed to create invoice');
+      errorBox.className = 'alert alert-danger';
+      console.error('Form submission error:', err);
+    } finally {
+      createInvoiceBtn.disabled = false;
+      createInvoiceBtn.innerHTML = originalBtnText;
+    }
+  });
 
   uploadBtn.addEventListener('click', async function() {
     if (!fileInput || !fileInput.files || !fileInput.files[0]) {
@@ -565,17 +348,17 @@
       const formData = new FormData();
       formData.append('file', file);
 
-      const plateField = manualForm.querySelector('[name="plate"]');
+      const plateField = invoiceForm.querySelector('[name="plate"]');
       if (plateField && plateField.value) {
         formData.append('plate', plateField.value);
       }
 
-      const orderIdField = manualForm.querySelector('[name="selected_order_id"]');
+      const orderIdField = invoiceForm.querySelector('[name="selected_order_id"]');
       if (orderIdField && orderIdField.value) {
         formData.append('selected_order_id', orderIdField.value);
       }
 
-      const customerIdField = manualForm.querySelector('[name="customer_id"]');
+      const customerIdField = invoiceForm.querySelector('[name="customer_id"]');
       if (customerIdField && customerIdField.value) {
         formData.append('pre_selected_customer_id', customerIdField.value);
       }
@@ -605,23 +388,21 @@
 
       setProgress(100);
 
-      // Populate preview
       const header = data.header || {};
       populatePreview(header);
 
-      // Populate line items
       const items = data.items || [];
       populateLineItems(items);
 
-      // Populate form fields
       populateFormFields(header);
 
-      // Show success
       successMsg.style.display = 'block';
       previewSection.style.display = 'block';
       if (items.length > 0) {
         lineItemsSection.style.display = 'block';
       }
+
+      createInvoiceBtn.disabled = false;
 
       errorBox.style.display = 'none';
 
@@ -631,6 +412,7 @@
       errorBox.innerHTML = '<i class="fa fa-exclamation-triangle me-2"></i>' + (err?.message || 'Upload failed');
       errorBox.className = 'alert alert-danger';
       successMsg.style.display = 'none';
+      createInvoiceBtn.disabled = true;
       console.error('Extraction error:', err);
     } finally {
       uploadBtn.disabled = false;
@@ -694,29 +476,19 @@
       const rate = item.rate || 0;
       const value = item.value || (qty * rate);
 
-      // Create table row with ALL columns including Value
       const row = document.createElement('tr');
       row.dataset.itemIndex = idx;
       row.innerHTML = `
-        <td class="text-center"><small>${idx + 1}</small></td>
-        <td><input type="text" class="form-control form-control-sm code-input" value="${code}" placeholder="Item code" data-item-index="${idx}"></td>
-        <td><textarea class="form-control form-control-sm desc-input" rows="2" placeholder="Item description" data-item-index="${idx}" style="resize: vertical; min-height: 40px;">${desc}</textarea></td>
-        <td><input type="text" class="form-control form-control-sm unit-input" value="${unit}" placeholder="Unit" data-item-index="${idx}"></td>
-        <td><input type="number" class="form-control form-control-sm qty-input" value="${qty}" min="1" step="1" data-item-index="${idx}"></td>
-        <td><input type="number" class="form-control form-control-sm rate-input" value="${rate.toFixed(2)}" step="0.01" min="0" data-item-index="${idx}"></td>
-        <td class="line-item-col-value">
-          <span class="item-value-display" data-item-index="${idx}">${value.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-          <input type="hidden" class="value-input" value="${value}" data-item-index="${idx}">
-        </td>
-        <td class="text-center">
-          <button type="button" class="btn btn-sm btn-danger remove-line-item" data-item-index="${idx}">
-            <i class="fa fa-trash"></i>
-          </button>
-        </td>
+        <td style="text-align: center;"><small>${idx + 1}</small></td>
+        <td><small>${code}</small></td>
+        <td><small>${desc}</small></td>
+        <td><small>${unit}</small></td>
+        <td style="text-align: center;"><small>${qty}</small></td>
+        <td style="text-align: right;"><small>${parseFloat(rate).toLocaleString('en-US', {minimumFractionDigits: 2})}</small></td>
+        <td style="text-align: right;"><small><strong>${value.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></small></td>
       `;
       lineItemsBody.appendChild(row);
 
-      // Create hidden form fields for ALL data
       const fields = [
         { name: 'item_code[]', value: code },
         { name: 'item_description[]', value: desc },
@@ -735,250 +507,66 @@
         hiddenFieldsDiv.appendChild(inp);
       });
     });
-
-    // Add event listeners for quantity and rate changes to auto-calculate value
-    document.querySelectorAll('.qty-input, .rate-input').forEach(input => {
-      input.addEventListener('input', function() {
-        const idx = this.dataset.itemIndex;
-        updateItemValue(idx);
-      });
-    });
-
-    // Add event listeners for code, description, unit changes
-    document.querySelectorAll('.code-input, .desc-input, .unit-input').forEach(input => {
-      input.addEventListener('change', function() {
-        const idx = this.dataset.itemIndex;
-        const fieldType = this.classList[1].replace('-input', '');
-        updateHiddenField(idx, fieldType, this.value);
-      });
-    });
-
-    // Remove button handlers
-    document.querySelectorAll('.remove-line-item').forEach(btn => {
-      btn.addEventListener('click', function(e) {
-        e.preventDefault();
-        const idx = this.dataset.itemIndex;
-        removeItemRow(idx);
-      });
-    });
-
-    // Add row button handler
-    if (addRowBtn) {
-      addRowBtn.addEventListener('click', function() {
-        addNewItemRow();
-      });
-    }
-  }
-
-  function updateItemValue(itemIndex) {
-    const qtyInput = document.querySelector(`.qty-input[data-item-index="${itemIndex}"]`);
-    const rateInput = document.querySelector(`.rate-input[data-item-index="${itemIndex}"]`);
-    const valueDisplay = document.querySelector(`.item-value-display[data-item-index="${itemIndex}"]`);
-    const valueInput = document.querySelector(`.value-input[data-item-index="${itemIndex}"]`);
-
-    if (qtyInput && rateInput) {
-      const qty = parseFloat(qtyInput.value) || 0;
-      const rate = parseFloat(rateInput.value) || 0;
-      const value = qty * rate;
-
-      if (valueDisplay) {
-        valueDisplay.textContent = value.toLocaleString('en-US', {minimumFractionDigits: 2});
-      }
-      if (valueInput) {
-        valueInput.value = value;
-      }
-
-      // Update hidden fields
-      updateHiddenField(itemIndex, 'qty', qty);
-      updateHiddenField(itemIndex, 'price', rate);
-      updateHiddenField(itemIndex, 'value', value);
-    }
-  }
-
-  function updateHiddenField(itemIndex, fieldType, value) {
-    const hiddenInput = document.querySelector(`input[name="item_${fieldType}[]"][data-item-index="${itemIndex}"]`);
-    if (hiddenInput) {
-      hiddenInput.value = value;
-    }
-  }
-
-  function removeItemRow(itemIndex) {
-    // Remove table row
-    const row = document.querySelector(`tr[data-item-index="${itemIndex}"]`);
-    if (row) row.remove();
-    
-    // Remove hidden fields
-    document.querySelectorAll(`input[data-item-index="${itemIndex}"]`).forEach(el => el.remove());
-    
-    // Reindex remaining items
-    reindexLineItems();
-  }
-
-  function addNewItemRow() {
-    const currentRows = lineItemsBody.querySelectorAll('tr');
-    const newIndex = currentRows.length;
-    
-    const row = document.createElement('tr');
-    row.dataset.itemIndex = newIndex;
-    row.innerHTML = `
-      <td class="text-center"><small>${newIndex + 1}</small></td>
-      <td><input type="text" class="form-control form-control-sm code-input" value="" placeholder="Item code" data-item-index="${newIndex}"></td>
-      <td><textarea class="form-control form-control-sm desc-input" rows="2" placeholder="Item description" data-item-index="${newIndex}" style="resize: vertical; min-height: 40px;"></textarea></td>
-      <td><input type="text" class="form-control form-control-sm unit-input" value="" placeholder="Unit" data-item-index="${newIndex}"></td>
-      <td><input type="number" class="form-control form-control-sm qty-input" value="1" min="1" step="1" data-item-index="${newIndex}"></td>
-      <td><input type="number" class="form-control form-control-sm rate-input" value="0.00" step="0.01" min="0" data-item-index="${newIndex}"></td>
-      <td class="line-item-col-value">
-        <span class="item-value-display" data-item-index="${newIndex}">0.00</span>
-        <input type="hidden" class="value-input" value="0" data-item-index="${newIndex}">
-      </td>
-      <td class="text-center">
-        <button type="button" class="btn btn-sm btn-danger remove-line-item" data-item-index="${newIndex}">
-          <i class="fa fa-trash"></i>
-        </button>
-      </td>
-    `;
-    lineItemsBody.appendChild(row);
-
-    // Create hidden form fields
-    const fields = [
-      { name: 'item_code[]', value: '' },
-      { name: 'item_description[]', value: '' },
-      { name: 'item_unit[]', value: '' },
-      { name: 'item_qty[]', value: '1' },
-      { name: 'item_price[]', value: '0' },
-      { name: 'item_value[]', value: '0' }
-    ];
-
-    fields.forEach(field => {
-      const inp = document.createElement('input');
-      inp.type = 'hidden';
-      inp.name = field.name;
-      inp.value = field.value;
-      inp.dataset.itemIndex = newIndex;
-      hiddenFieldsDiv.appendChild(inp);
-    });
-
-    // Add event listeners for the new row
-    document.querySelectorAll(`.qty-input[data-item-index="${newIndex}"], .rate-input[data-item-index="${newIndex}"]`).forEach(input => {
-      input.addEventListener('input', function() {
-        updateItemValue(newIndex);
-      });
-    });
-
-    document.querySelectorAll(`.code-input[data-item-index="${newIndex}"], .desc-input[data-item-index="${newIndex}"], .unit-input[data-item-index="${newIndex}"]`).forEach(input => {
-      input.addEventListener('change', function() {
-        const fieldType = this.classList[1].replace('-input', '');
-        updateHiddenField(newIndex, fieldType, this.value);
-      });
-    });
-
-    document.querySelector(`.remove-line-item[data-item-index="${newIndex}"]`).addEventListener('click', function(e) {
-      e.preventDefault();
-      removeItemRow(newIndex);
-    });
-  }
-
-  function reindexLineItems() {
-    const rows = lineItemsBody.querySelectorAll('tr');
-    rows.forEach((row, index) => {
-      const newIndex = index;
-      row.dataset.itemIndex = newIndex;
-      
-      // Update all inputs and buttons with new index
-      row.querySelectorAll('input, button, span, textarea').forEach(el => {
-        if (el.dataset.itemIndex !== undefined) {
-          el.dataset.itemIndex = newIndex;
-        }
-      });
-      
-      // Update row number
-      const numCell = row.querySelector('td:first-child');
-      if (numCell) {
-        numCell.innerHTML = `<small>${newIndex + 1}</small>`;
-      }
-    });
-
-    // Update hidden fields indexing
-    const hiddenInputs = hiddenFieldsDiv.querySelectorAll('input[data-item-index]');
-    const reindexedInputs = {};
-    
-    // Group by old index
-    hiddenInputs.forEach(input => {
-      const oldIndex = input.dataset.itemIndex;
-      if (!reindexedInputs[oldIndex]) {
-        reindexedInputs[oldIndex] = [];
-      }
-      reindexedInputs[oldIndex].push(input);
-    });
-    
-    // Reindex sequentially
-    Object.values(reindexedInputs).forEach((inputs, newIndex) => {
-      inputs.forEach(input => {
-        input.dataset.itemIndex = newIndex;
-      });
-    });
   }
 
   function populateFormFields(header) {
-    const fieldMap = {
-      'manualCustomerName': 'customer_name',
-      'manualCustomerPhone': 'phone',
-      'invoiceNumberField': 'invoice_no',
-      'codeNoField': 'code_no',
-      'referenceField': 'reference'
-    };
+    const customerName = header.customer_name || '';
+    const customerPhone = header.phone || '';
+    const customerEmail = header.email || '';
+    const customerAddress = header.address || '';
+    const invoiceNumber = header.invoice_no || '';
+    const invoiceDate = header.date || '';
+    const subtotal = header.subtotal || 0;
+    const tax = header.tax || 0;
+    const total = header.total || 0;
 
-    Object.keys(fieldMap).forEach(inputId => {
-      const el = manualForm.querySelector('[id="' + inputId + '"]');
-      if (el) {
-        const value = header[fieldMap[inputId]] || '';
-        el.value = value;
+    const fields = [
+      { name: 'customer_name', value: customerName },
+      { name: 'customer_phone', value: customerPhone },
+      { name: 'customer_email', value: customerEmail },
+      { name: 'customer_address', value: customerAddress },
+      { name: 'invoice_number', value: invoiceNumber },
+      { name: 'invoice_date', value: formatDateForForm(invoiceDate) },
+      { name: 'subtotal', value: subtotal },
+      { name: 'tax_amount', value: tax },
+      { name: 'total_amount', value: total },
+      { name: 'code_no', value: header.code_no || '' },
+      { name: 'reference', value: header.reference || '' }
+    ];
+
+    fields.forEach(field => {
+      let inp = invoiceForm.querySelector(`[name="${field.name}"]`);
+      if (!inp) {
+        inp = document.createElement('input');
+        inp.type = 'hidden';
+        inp.name = field.name;
+        hiddenFieldsDiv.appendChild(inp);
       }
+      inp.value = field.value;
     });
 
-    // Set address
-    const addressInput = manualForm.querySelector('[name="customer_address"]');
-    if (addressInput) {
-      addressInput.value = header.address || '';
-    }
-
-    // Set email
-    const emailInput = manualForm.querySelector('[name="customer_email"]');
-    if (emailInput) {
-      emailInput.value = header.email || '';
-    }
-
-    // Set invoice date
-    const dateInput = manualForm.querySelector('[name="invoice_date"]');
-    if (dateInput && header.date) {
-      let formattedDate = header.date;
-      const dateMatch = String(header.date).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-      if (dateMatch) {
-        formattedDate = dateMatch[3] + '-' + String(dateMatch[2]).padStart(2, '0') + '-' + String(dateMatch[1]).padStart(2, '0');
-      }
-      dateInput.value = formattedDate;
-    }
-
-    // Set monetary values
-    const subtotalInput = manualForm.querySelector('[name="subtotal"]');
-    const taxInput = manualForm.querySelector('[name="tax_amount"]');
-    const totalInput = manualForm.querySelector('[name="total_amount"]');
-
-    if (subtotalInput) subtotalInput.value = header.subtotal || 0;
-    if (taxInput) taxInput.value = header.tax || 0;
-    if (totalInput) totalInput.value = header.total || 0;
-
-    // Store seller and additional info in hidden fields
     const sellerKeys = ['seller_name', 'seller_address', 'seller_phone', 'seller_email', 'seller_tax_id', 'seller_vat_reg'];
     sellerKeys.forEach(key => {
       if (header[key]) {
-        const inp = document.createElement('input');
-        inp.type = 'hidden';
-        inp.name = key;
+        let inp = invoiceForm.querySelector(`[name="${key}"]`);
+        if (!inp) {
+          inp = document.createElement('input');
+          inp.type = 'hidden';
+          inp.name = key;
+          hiddenFieldsDiv.appendChild(inp);
+        }
         inp.value = header[key];
-        hiddenFieldsDiv.appendChild(inp);
       }
     });
+  }
+
+  function formatDateForForm(dateStr) {
+    if (!dateStr) return '';
+    const dateMatch = String(dateStr).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (dateMatch) {
+      return dateMatch[3] + '-' + String(dateMatch[2]).padStart(2, '0') + '-' + String(dateMatch[1]).padStart(2, '0');
+    }
+    return dateStr;
   }
 })();
 </script>
