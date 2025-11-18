@@ -2147,6 +2147,53 @@ document.addEventListener('DOMContentLoaded', function() {
     display: flex;
     gap: 0.5rem;
   }
+
+  /* Invoice Line Items Table Styling */
+  .invoice-line-items-table {
+    font-size: 0.85rem;
+    width: 100%;
+  }
+
+  .invoice-line-items-table thead {
+    background-color: #f8f9fa;
+    position: sticky;
+    top: 0;
+  }
+
+  .invoice-line-items-table th,
+  .invoice-line-items-table td {
+    padding: 0.6rem 0.4rem;
+    vertical-align: middle;
+    border: 1px solid #dee2e6;
+  }
+
+  .invoice-line-items-table th {
+    font-weight: 600;
+    text-align: left;
+    background-color: #f8f9fa;
+  }
+
+  .col-line-item-desc {
+    word-break: break-word;
+    white-space: normal;
+    overflow-wrap: break-word;
+    max-width: 0;
+  }
+
+  .col-line-item-sr {
+    text-align: center;
+  }
+
+  @media (max-width: 768px) {
+    .invoice-line-items-table {
+      font-size: 0.75rem;
+    }
+
+    .invoice-line-items-table th,
+    .invoice-line-items-table td {
+      padding: 0.4rem 0.25rem;
+    }
+  }
   
   .document-workflow-alert {
     border-left: 4px solid #17a2b8;
