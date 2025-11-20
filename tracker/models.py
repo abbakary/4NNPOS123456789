@@ -129,8 +129,32 @@ class Vehicle(models.Model):
         ]
 
 
+class LabourCode(models.Model):
+    """
+    Mapping of item codes to order types/categories.
+    Used to automatically determine order type when processing invoices.
+    """
+    code = models.CharField(max_length=32, unique=True, db_index=True)
+    description = models.CharField(max_length=255)
+    category = models.CharField(max_length=64, help_text="Order type category (e.g., labour, tyre service)")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['code']
+        indexes = [
+            models.Index(fields=['code'], name='idx_labour_code'),
+            models.Index(fields=['category'], name='idx_labour_category'),
+            models.Index(fields=['is_active'], name='idx_labour_active'),
+        ]
+
+    def __str__(self):
+        return f"{self.code} - {self.description} ({self.category})"
+
+
 class Order(models.Model):
-    TYPE_CHOICES = [("service", "Service"), ("sales", "Sales"), ("inquiry", "Inquiries")]
+    TYPE_CHOICES = [("service", "Service"), ("sales", "Sales"), ("inquiry", "Inquiries"), ("labour", "Labour")]
     STATUS_CHOICES = [
         ("created", "Started"),
         ("in_progress", "In Progress"),
