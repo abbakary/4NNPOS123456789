@@ -48,6 +48,7 @@ urlpatterns = [
     path("orders/<int:pk>/status/", views.update_order_status, name="update_order_status"),
     path("orders/<int:pk>/complete/", views.complete_order, name="complete_order"),
     path("orders/<int:pk>/attachments/add/", views.add_order_attachments, name="add_order_attachments"),
+    path("orders/<int:pk>/attachments/sign/", views.sign_supporting_documents, name="sign_supporting_documents"),
     path("orders/<int:pk>/sign-document/", views.sign_order_document, name="order_sign_document"),
     path("orders/<int:pk>/sign-existing-document/", views.sign_existing_document, name="sign_existing_document"),
     path("attachments/<int:att_id>/delete/", views.delete_order_attachment, name="delete_order_attachment"),

@@ -350,6 +350,25 @@ class OrderAttachment(models.Model):
         ]
 
 
+class OrderAttachmentSignature(models.Model):
+    """Tracks signed versions of supporting documents, separate from order completion."""
+    attachment = models.OneToOneField(OrderAttachment, on_delete=models.CASCADE, related_name='signature')
+    signed_file = models.FileField(upload_to='order_attachments_signed/')
+    signature_image = models.ImageField(upload_to='order_attachment_signatures/', blank=True, null=True)
+    signed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='signed_order_attachments')
+    signed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Signed: {self.attachment.filename()} for {self.attachment.order.order_number}"
+
+    class Meta:
+        ordering = ['-signed_at']
+        indexes = [
+            models.Index(fields=['attachment'], name='idx_att_sig_attachment'),
+            models.Index(fields=['signed_at'], name='idx_att_sig_signed_at'),
+        ]
+
+
 class Brand(models.Model):
     name = models.CharField(max_length=128, unique=True)
     description = models.TextField(blank=True, null=True)
@@ -644,12 +663,16 @@ class InvoiceLineItem(models.Model):
         ordering = ['invoice', 'created_at']
 
     def save(self, *args, **kwargs):
-        self.line_total = self.quantity * self.unit_price
-        self.tax_amount = self.line_total * (self.tax_rate / 100) if self.tax_rate else Decimal('0')
+        # Only recalculate line_total if it wasn't explicitly set (from extraction)
+        # This preserves extracted values from invoices while supporting manual entry
+        if not self.line_total or self.line_total == Decimal('0'):
+            self.line_total = self.quantity * self.unit_price
+
+        # Only recalculate tax_amount if it wasn't explicitly set
+        if not self.tax_amount or self.tax_amount == Decimal('0'):
+            self.tax_amount = self.line_total * (self.tax_rate / 100) if self.tax_rate else Decimal('0')
+
         super().save(*args, **kwargs)
-        # Recalculate invoice totals
-        if self.invoice:
-            self.invoice.calculate_totals().save()
 
     def __str__(self) -> str:
         return f"{self.description} x {self.quantity}"

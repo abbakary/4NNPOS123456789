@@ -24,7 +24,7 @@ from django.contrib.auth.models import User, Group
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.core.exceptions import ValidationError
-from .models import Profile, Customer, Order, Vehicle, InventoryItem, CustomerNote, Brand, Branch, OrderAttachment, ServiceType, ServiceAddon
+from .models import Profile, Customer, Order, Vehicle, InventoryItem, CustomerNote, Brand, Branch, OrderAttachment, OrderAttachmentSignature, ServiceType, ServiceAddon
 from django.core.paginator import Paginator
 from .utils import add_audit_log, get_audit_logs, clear_audit_logs, scope_queryset, get_user_branch
 from .services import OrderService
@@ -59,7 +59,9 @@ def _mark_overdue_orders(hours=24):
         Order.objects.filter(status="created", created_at__lte=created_cutoff).exclude(type='inquiry').update(status="in_progress", started_at=F('created_at'))
 
         # Mark orders as overdue based on working hours elapsed (9 working hours = 8 AM to 5 PM)
-        # Only check orders that are currently in_progress with started_at set
+        # Check both 'in_progress' and 'created' orders that have exceeded the 9-hour threshold
+
+        # 1. Check in_progress orders with started_at set
         in_progress_orders = Order.objects.filter(
             status='in_progress',
             started_at__isnull=False
@@ -67,6 +69,19 @@ def _mark_overdue_orders(hours=24):
 
         for order in in_progress_orders:
             if is_order_overdue(order.started_at, now):
+                order.status = 'overdue'
+                order.save(update_fields=['status'])
+
+        # 2. Check created orders that are waiting too long (created but not yet auto-progressed)
+        # An order in 'created' status for 9+ hours should be marked as overdue
+        # Use the same calculation: if 9 working hours have elapsed since created_at
+        created_orders = Order.objects.filter(
+            status='created',
+            created_at__isnull=False
+        ).exclude(type='inquiry')
+
+        for order in created_orders:
+            if is_order_overdue(order.created_at, now):
                 order.status = 'overdue'
                 order.save(update_fields=['status'])
 
@@ -1887,14 +1902,16 @@ def create_order_for_customer(request: HttpRequest, pk: int):
                     return render(request, "tracker/order_create.html", {"customer": c, "form": form})
             o.save()
 
-            # Update customer visit/arrival status for returning tracking
+            # Update customer visit/arrival status using centralized service
             try:
+                from .services import CustomerService
                 now_ts = timezone.now()
                 c.arrival_time = now_ts
                 c.current_status = 'arrived'
                 c.last_visit = now_ts
-                c.total_visits = (c.total_visits or 0) + 1
-                c.save(update_fields=['arrival_time','current_status','last_visit','total_visits'])
+                c.save(update_fields=['arrival_time','current_status','last_visit'])
+                # Use centralized service to increment visit count (avoids duplicates)
+                CustomerService.update_customer_visit(c)
             except Exception:
                 pass
 
@@ -3731,6 +3748,110 @@ def add_order_attachments(request: HttpRequest, pk: int):
         else:
             messages.error(request, 'No attachments were uploaded.')
     return redirect('tracker:order_detail', pk=o.id)
+
+
+@login_required
+@require_http_methods(["POST"])
+def sign_supporting_documents(request: HttpRequest, pk: int):
+    """Sign supporting documents with signature only after order is completed."""
+    from .models import OrderAttachmentSignature
+
+    orders_qs = scope_queryset(Order.objects.all(), request.user, request)
+    order = get_object_or_404(orders_qs, pk=pk)
+
+    if order.status != 'completed':
+        return JsonResponse({'success': False, 'error': 'Order must be completed before signing supporting documents.'}, status=400)
+
+    attachment_id = request.POST.get('attachment_id')
+    signature_data = request.POST.get('signature_data', '')
+
+    if not attachment_id or not signature_data:
+        return JsonResponse({'success': False, 'error': 'Attachment ID and signature are required.'}, status=400)
+
+    try:
+        attachment = OrderAttachment.objects.get(id=int(attachment_id), order=order)
+    except OrderAttachment.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Attachment not found.'}, status=404)
+
+    if OrderAttachmentSignature.objects.filter(attachment=attachment).exists():
+        return JsonResponse({'success': False, 'error': 'This document has already been signed.'}, status=400)
+
+    MAX_SIGNATURE_BYTES = 2 * 1024 * 1024
+
+    try:
+        if ';base64,' in signature_data:
+            header, b64_data = signature_data.split(';base64,', 1)
+            ext = (header.split('/')[-1] or 'png').split(';')[0]
+        else:
+            b64_data = signature_data.strip()
+            ext = 'png'
+
+        signature_bytes = base64.b64decode(b64_data)
+
+        if len(signature_bytes) > MAX_SIGNATURE_BYTES:
+            return JsonResponse({'success': False, 'error': 'Signature image is too large (max 2MB).'}, status=400)
+
+    except Exception as e:
+        logger.error(f"Failed to decode signature: {e}")
+        return JsonResponse({'success': False, 'error': 'Invalid signature data.'}, status=400)
+
+    try:
+        attachment.file.open('rb')
+        doc_bytes = attachment.file.read()
+        attachment.file.close()
+    except Exception as e:
+        logger.error(f"Failed to read attachment: {e}")
+        return JsonResponse({'success': False, 'error': 'Could not read the document file.'}, status=400)
+
+    signed_file_content = None
+    filename_lower = attachment.filename().lower()
+
+    if filename_lower.endswith('.pdf'):
+        try:
+            signed_bytes = embed_signature_in_pdf(doc_bytes, signature_bytes)
+            signed_name = build_signed_filename(attachment.filename())
+            signed_file_content = ContentFile(signed_bytes, name=signed_name)
+        except Exception as e:
+            logger.error(f"Failed to embed signature in PDF: {e}")
+            return JsonResponse({'success': False, 'error': 'Could not embed signature into PDF.'}, status=400)
+    else:
+        image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        if any(filename_lower.endswith(ext) for ext in image_exts):
+            try:
+                signed_bytes = embed_signature_in_image(doc_bytes, signature_bytes)
+                signed_name = build_signed_name(attachment.filename())
+                signed_file_content = ContentFile(signed_bytes, name=signed_name)
+            except Exception as e:
+                logger.error(f"Failed to embed signature in image: {e}")
+                return JsonResponse({'success': False, 'error': 'Could not embed signature into image.'}, status=400)
+        else:
+            return JsonResponse({'success': False, 'error': 'Only PDF and image files can be signed.'}, status=400)
+
+    try:
+        sig_img = ContentFile(signature_bytes, name=f"sig_{attachment.id}_{int(time.time())}.png")
+        att_sig = OrderAttachmentSignature(
+            attachment=attachment,
+            signed_file=signed_file_content,
+            signature_image=sig_img,
+            signed_by=request.user
+        )
+        att_sig.save()
+
+        try:
+            add_audit_log(request.user, 'supporting_doc_signed', f"Signed supporting document for order {order.order_number}")
+        except Exception:
+            pass
+
+        return JsonResponse({
+            'success': True,
+            'message': 'Document signed successfully.',
+            'attachment_id': attachment_id,
+            'signed_at': att_sig.signed_at.isoformat(),
+            'signed_by': att_sig.signed_by.get_full_name() or att_sig.signed_by.username
+        })
+    except Exception as e:
+        logger.error(f"Failed to save signature: {e}")
+        return JsonResponse({'success': False, 'error': 'Could not save the signed document.'}, status=400)
 
 
 @login_required

@@ -708,9 +708,14 @@
         <div class="card-header bg-gradient-info text-white d-flex justify-content-between align-items-center">
           <h6 class="mb-0"><i class="fa fa-layer-group me-2"></i>Additional Items & Services</h6>
           {% if order.status != 'cancelled' %}
-          <button type="button" class="btn btn-sm btn-light text-info fw-medium" data-bs-toggle="modal" data-bs-target="#addOrderTypeModal">
-            <i class="fa fa-plus me-1"></i>Add Item/Service
-          </button>
+          <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-light text-info fw-medium" data-bs-toggle="modal" data-bs-target="#addOrderTypeModal">
+              <i class="fa fa-plus me-1"></i>Add Item/Service
+            </button>
+            <button type="button" class="btn btn-light text-info fw-medium" id="uploadAdditionalInvoiceBtn" data-bs-toggle="modal" data-bs-target="#uploadAdditionalInvoiceModal">
+              <i class="fa fa-file-upload me-1"></i>Upload Invoice
+            </button>
+          </div>
           {% endif %}
         </div>
         <div class="card-body">
@@ -960,13 +965,18 @@
                     <td>
                       <i class="fa fa-file-text-o me-2 text-muted"></i>
                       <a href="{{ url }}" target="_blank" class="text-decoration-none">{{ name }}</a>
+                      {% if att.signature %}
+                      <span class="badge bg-success ms-2"><i class="fa fa-check me-1"></i>Signed</span>
+                      {% endif %}
                     </td>
                     <td><small class="text-muted">{{ att.uploaded_at|localtime|date_medium }}</small></td>
                     <td class="text-end action-buttons-compact">
                       <a href="{{ url }}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fa fa-eye me-1"></i>View</a>
                       <a href="{{ url }}" download class="btn btn-sm btn-outline-secondary"><i class="fa fa-download me-1"></i>Download</a>
-                      {% if order.status != 'cancelled' and order.type != 'inquiry' %}
-                      <button type="button" class="btn btn-sm btn-success sign-existing-doc" data-file-url="{{ url }}" data-file-name="{{ name }}" data-attachment-id="{{ att.id }}" data-bs-toggle="modal" data-bs-target="#signExistingModal"><i class="fa fa-pen me-1"></i>Sign</button>
+                      {% if order.status == 'completed' and not att.signature and order.type != 'inquiry' %}
+                      <button type="button" class="btn btn-sm btn-info supporting-doc-sign-btn" data-file-url="{{ url }}" data-file-name="{{ name }}" data-attachment-id="{{ att.id }}" data-bs-toggle="modal" data-bs-target="#signSupportingDocsModal"><i class="fa fa-pen me-1"></i>Sign</button>
+                      {% elif att.signature %}
+                      <a href="{{ att.signature.signed_file.url }}" target="_blank" class="btn btn-sm btn-success"><i class="fa fa-file-contract me-1"></i>View Signed</a>
                       {% endif %}
                     </td>
                   </tr>
@@ -1572,6 +1582,294 @@
           <i class="fa fa-check-circle me-2"></i>Sign & Save Document
         </button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sign Supporting Documents Modal (Only after order is completed) -->
+{% if order.status == 'completed' and order.attachments.all and order.type != 'inquiry' %}
+<div class="modal fade" id="signSupportingDocsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg signature-modal-container">
+    <div class="modal-content border-0 signature-modal-content shadow-lg">
+      <div class="modal-header signature-modal-header bg-gradient-info text-white border-0">
+        <div class="d-flex align-items-center">
+          <i class="fa fa-pen-fancy me-3 fa-lg"></i>
+          <div>
+            <h5 class="modal-title fw-bold mb-0">Sign Supporting Document</h5>
+            <small class="opacity-75">Sign uploaded supporting documents with customer signature</small>
+          </div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0 signature-modal-body">
+        <div id="signSupportingDocsContent">
+          <input type="hidden" id="supportingDocSignatureData">
+          <input type="hidden" id="supportingDocAttachmentId">
+
+          <div class="border-bottom px-4 pt-4">
+            <ul class="nav nav-tabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="supportingDocSelectTab" data-bs-toggle="tab" data-bs-target="#supportingDocSelectSection" type="button" role="tab">
+                  <i class="fa fa-file me-2"></i>Select Document
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="supportingDocSignTab" data-bs-toggle="tab" data-bs-target="#supportingDocSignSection" type="button" role="tab">
+                  <i class="fa fa-signature me-2"></i>Signature
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div class="tab-content p-4">
+            <!-- Document Selection Tab -->
+            <div class="tab-pane fade show active" id="supportingDocSelectSection" role="tabpanel">
+              <div class="alert alert-info bg-info bg-opacity-10 border-info mb-4">
+                <i class="fa fa-info-circle me-2"></i>
+                <strong>Document Signing:</strong> A signed copy will be created. The original document remains unchanged.
+              </div>
+
+              <h6 class="text-muted mb-3"><i class="fa fa-paperclip me-2"></i>Available Documents</h6>
+              <div class="document-list-selection">
+                {% for att in order.attachments.all %}
+                {% if not att.signature %}
+                <div class="document-selection-item mb-2">
+                  <div class="form-check">
+                    <input class="form-check-input supporting-doc-selector" type="radio" name="supporting_doc_choice" id="supporting-doc-{{ att.id }}" value="{{ att.id }}" data-doc-name="{{ att.filename|default:att.file.name }}" data-doc-url="{{ att.file.url }}" data-attachment-id="{{ att.id }}">
+                    <label class="form-check-label w-100 flex-grow-1" for="supporting-doc-{{ att.id }}">
+                      <div class="d-flex align-items-center justify-content-between w-100">
+                        <div class="d-flex align-items-center flex-grow-1">
+                          <div class="doc-selector-icon">
+                            <i class="fa fa-file-pdf"></i>
+                          </div>
+                          <div>
+                            <div class="fw-semibold">{{ att.filename|default:att.file.name }}</div>
+                            <small class="text-muted d-block">Uploaded {{ att.uploaded_at|localtime|date:"M j, Y g:i a" }}</small>
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+              </div>
+
+              <div id="supportingDocSelectedInfo" class="mt-4" style="display: none;">
+                <div class="selected-document-summary">
+                  <div class="summary-header">
+                    <i class="fa fa-check-circle text-success me-2"></i>
+                    <strong>Document Selected</strong>
+                  </div>
+                  <div class="summary-content">
+                    <div class="d-flex align-items-center gap-2">
+                      <i class="fa fa-file-alt text-primary fa-lg"></i>
+                      <div>
+                        <div class="fw-semibold text-dark" id="supportingDocSelectedName"></div>
+                        <small class="text-muted">Ready to sign</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="supportingDocPreviewSection" class="mt-4" style="display: none;">
+                <h6 class="mb-3"><i class="fa fa-eye me-2"></i>Document Preview</h6>
+                <div class="border rounded overflow-hidden bg-light" style="max-height: 400px; overflow-y: auto;">
+                  <div id="supportingDocPreviewHost" class="w-100 d-flex align-items-center justify-content-center text-muted" style="min-height: 300px;">
+                    <div class="text-center">
+                      <i class="fa fa-file fa-3x mb-3 opacity-50"></i>
+                      <p class="text-muted">Document preview</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Signature Capture Tab -->
+            <div class="tab-pane fade" id="supportingDocSignSection" role="tabpanel">
+              <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <label class="form-label fw-bold text-dark mb-0">
+                    <i class="fa fa-pen me-2 text-success"></i>Draw Customer Signature <span class="text-danger">*</span>
+                  </label>
+                  <small class="text-muted">Use mouse or touch to draw</small>
+                </div>
+                <div id="supportingDocSignContainer" class="signature-canvas-container position-relative overflow-hidden bg-white border-2 rounded d-flex align-items-center justify-content-center" style="height: 280px; border-color: #dee2e6; border-style: solid; cursor: crosshair; background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);">
+                  <div id="supportingDocSignPreviewHost" class="w-100 h-100 d-flex align-items-center justify-content-center text-muted">
+                    <div class="text-center pointer-events-none">
+                      <i class="fa fa-pen-fancy fa-3x mb-3 text-muted opacity-25"></i>
+                      <p class="mb-1 fw-medium">Click and draw signature</p>
+                      <small class="text-muted">Use your mouse or touchpad</small>
+                    </div>
+                  </div>
+                  <canvas id="supportingDocSignaturePad" class="position-absolute top-0 start-0 w-100 h-100" style="cursor: crosshair; z-index: 2; display: none;"></canvas>
+                </div>
+                <div class="d-flex gap-2 mt-3 align-items-center flex-wrap justify-content-between">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="clearSupportingDocSignatureBtn" style="display: none;">
+                    <i class="fa fa-eraser me-1"></i>Clear Signature
+                  </button>
+                  <div id="supportingDocSignaturePreviewSmall" class="d-flex align-items-center gap-2" style="display: none;">
+                    <small class="text-muted fw-medium">Signature Preview:</small>
+                    <div class="border rounded" style="padding: 4px; background: white;">
+                      <canvas id="supportingDocSignaturePreviewMini" width="140" height="70" style="border: 1px solid #e9ecef; border-radius: 4px; background: white; display: block;"></canvas>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer bg-light border-top signature-modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-info fw-bold" id="footerSignSupportingDoc">
+          <i class="fa fa-check-circle me-2"></i>Sign & Save Document
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Upload Additional Invoice Modal -->
+<div class="modal fade" id="uploadAdditionalInvoiceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-light border-bottom">
+        <h5 class="modal-title">
+          <i class="fa fa-file-invoice me-2"></i>Upload & Extract Additional Invoice for Order {{ order.order_number }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <form id="additionalInvoiceForm" method="post" action="{% url 'tracker:api_create_invoice_from_upload' %}">
+        {% csrf_token %}
+        <input type="hidden" name="selected_order_id" value="{{ order.id }}">
+        {% if order.customer %}<input type="hidden" name="customer_id" value="{{ order.customer.id }}">{% endif %}
+
+        <!-- Hidden fields for extracted data -->
+        <div id="additionalInvoiceHiddenFields"></div>
+
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+          <!-- Info Alert -->
+          <div class="alert alert-info mb-3 border-0" role="alert">
+            <div class="d-flex align-items-center">
+              <i class="fa fa-lightbulb me-3" style="font-size: 18px;"></i>
+              <div>
+                <strong>Upload Additional Invoice PDF:</strong> Upload an invoice document to automatically extract data. All extracted data will be displayed below for review before adding to the order. Amounts are preserved exactly as extracted from the PDF without recalculation.
+              </div>
+            </div>
+          </div>
+
+          <!-- Upload Section -->
+          <div class="card mb-3">
+            <div class="card-header bg-light">
+              <strong><i class="fa fa-file-upload me-2"></i>Select PDF File</strong>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <label class="form-label">Invoice PDF File *</label>
+                <input type="file" id="additionalInvoiceFile" class="form-control" accept=".pdf" data-max-file-size="50485760" required>
+                <small class="text-muted">PDF files only. Maximum 50MB.</small>
+              </div>
+
+              <div id="additionalUploadError" class="alert alert-danger" style="display:none" role="alert"></div>
+              <div id="additionalExtractionSuccess" class="alert alert-success" style="display:none" role="alert">
+                <i class="fa fa-check-circle me-2"></i>Invoice data extracted successfully! Review the extracted information below.
+              </div>
+              <div id="additionalUploadProgress" class="progress" style="display:none;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" id="additionalUploadProgressBar" role="progressbar" style="width: 0%"></div>
+              </div>
+
+              <button type="button" id="additionalUploadBtn" class="btn btn-primary">
+                <i class="fa fa-upload me-2"></i>Upload & Extract
+              </button>
+            </div>
+          </div>
+
+          <!-- Extracted Data Preview -->
+          <div id="additionalExtractedDataPreview" style="display:none;" class="card mb-3">
+            <div class="card-header bg-light">
+              <strong><i class="fa fa-check-circle me-2 text-success"></i>Extracted Information</strong>
+              <small class="text-muted ms-2">Review before confirming</small>
+            </div>
+            <div class="card-body" style="max-height: 400px; overflow-y: auto; background-color: #f8f9fa;">
+              <!-- Invoice Information -->
+              <div class="mb-3">
+                <h6 class="text-muted mb-2"><i class="fa fa-file-invoice me-2"></i>Invoice Details</h6>
+                <div class="row g-2">
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Invoice Number</small>
+                    <p id="additionalPreviewInvoiceNumber" class="mb-2 fw-medium">-</p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Invoice Date</small>
+                    <p id="additionalPreviewInvoiceDate" class="mb-2 fw-medium">-</p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Subtotal</small>
+                    <p id="additionalPreviewSubtotal" class="mb-2 fw-medium">-</p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Tax/VAT</small>
+                    <p id="additionalPreviewTax" class="mb-2 fw-medium">-</p>
+                  </div>
+                  <div class="col-md-6">
+                    <small class="text-muted d-block">Total Amount</small>
+                    <p id="additionalPreviewTotal" class="mb-2 fw-medium">-</p>
+                  </div>
+                </div>
+              </div>
+
+              <hr class="my-3">
+
+              <!-- Extracted Line Items -->
+              <div id="additionalExtractedLineItemsSection" class="card" style="display:none;">
+                <div class="card-header bg-light">
+                  <strong><i class="fa fa-list me-2"></i>Line Items</strong>
+                  <small class="text-muted ms-2">Items from invoice</small>
+                </div>
+                <div class="card-body p-0">
+                  <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0 extracted-line-items-table">
+                      <thead class="table-light">
+                        <tr style="background-color: #f8f9fa;">
+                          <th style="width: 5%; text-align: center;">#</th>
+                          <th style="width: 10%;">Code</th>
+                          <th style="width: 40%; word-break: break-word;">Description</th>
+                          <th style="width: 10%;">Unit</th>
+                          <th style="width: 8%; text-align: center;">Qty</th>
+                          <th style="width: 12%; text-align: right;">Unit Price</th>
+                          <th style="width: 15%; text-align: right;">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody id="additionalLineItemsBody" class="extracted-line-items-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="border-top: 1px solid #dee2e6; padding: 20px; background: #f8f9fa;">
+          <div class="text-center w-100 mb-3">
+            <p class="text-muted small mb-0">
+              <i class="fa fa-info-circle me-1"></i>
+              Upload an invoice PDF to extract data. Review the information and click "Add Invoice" to save and link it to this order.
+            </p>
+          </div>
+          <div class="w-100 d-flex gap-2" style="margin-top: -15px;">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+              <i class="fa fa-times me-2"></i>Cancel
+            </button>
+            <button type="submit" class="btn btn-success btn-lg flex-grow-1" id="addAdditionalInvoiceBtn" style="font-weight: 600;" disabled>
+              <i class="fa fa-check-circle me-2"></i>Add Invoice
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   </div>
 </div>
@@ -4379,6 +4677,476 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       });
     }
+  })();
+
+  // ============================================================================
+  // ADDITIONAL INVOICE UPLOAD & EXTRACTION FUNCTIONALITY
+  // ============================================================================
+  (function() {
+    const additionalFileInput = document.getElementById('additionalInvoiceFile');
+    const additionalUploadBtn = document.getElementById('additionalUploadBtn');
+    const additionalErrorBox = document.getElementById('additionalUploadError');
+    const additionalSuccessMsg = document.getElementById('additionalExtractionSuccess');
+    const additionalProgressWrap = document.getElementById('additionalUploadProgress');
+    const additionalProgressBar = document.getElementById('additionalUploadProgressBar');
+    const additionalPreviewSection = document.getElementById('additionalExtractedDataPreview');
+    const additionalLineItemsSection = document.getElementById('additionalExtractedLineItemsSection');
+    const additionalLineItemsBody = document.getElementById('additionalLineItemsBody');
+    const additionalHiddenFieldsDiv = document.getElementById('additionalInvoiceHiddenFields');
+    const additionalInvoiceForm = document.getElementById('additionalInvoiceForm');
+    const addAdditionalInvoiceBtn = document.getElementById('addAdditionalInvoiceBtn');
+
+    if (!additionalUploadBtn) return;
+
+    function getCSRF() {
+      const name = 'csrftoken=';
+      const parts = document.cookie.split(';');
+      for (let i = 0; i < parts.length; i++) {
+        const c = parts[i].trim();
+        if (c.indexOf(name) === 0) return c.substring(name.length);
+      }
+      const el = document.querySelector('input[name="csrfmiddlewaretoken"]');
+      return el ? el.value : '';
+    }
+
+    function setAdditionalProgress(p) {
+      if (additionalProgressBar) additionalProgressBar.style.width = Math.max(0, Math.min(100, p)) + '%';
+      if (additionalProgressWrap) additionalProgressWrap.style.display = p > 0 && p < 100 ? 'block' : (p >= 100 ? 'block' : 'none');
+    }
+
+    function populateAdditionalLineItems(items) {
+      additionalLineItemsBody.innerHTML = '';
+
+      if (!items || items.length === 0) {
+        additionalLineItemsSection.style.display = 'none';
+        return;
+      }
+
+      additionalLineItemsSection.style.display = 'block';
+
+      items.forEach((item, idx) => {
+        const code = item.code || '';
+        const desc = item.description || '';
+        const unit = item.unit || '';
+        const qty = item.qty || 1;
+        const rate = item.rate || 0;
+        const value = item.value || (qty * rate);
+
+        const row = document.createElement('tr');
+        row.dataset.itemIndex = idx;
+        row.innerHTML = `
+          <td style="text-align: center;"><small>${idx + 1}</small></td>
+          <td><small>${code}</small></td>
+          <td><small>${desc}</small></td>
+          <td><small>${unit}</small></td>
+          <td style="text-align: center;"><small>${qty}</small></td>
+          <td style="text-align: right;"><small>${parseFloat(rate).toLocaleString('en-US', {minimumFractionDigits: 2})}</small></td>
+          <td style="text-align: right;"><small><strong>${value.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></small></td>
+        `;
+        additionalLineItemsBody.appendChild(row);
+
+        const fields = [
+          { name: 'item_code[]', value: code },
+          { name: 'item_description[]', value: desc },
+          { name: 'item_unit[]', value: unit },
+          { name: 'item_qty[]', value: qty },
+          { name: 'item_price[]', value: rate },
+          { name: 'item_value[]', value: value }
+        ];
+
+        fields.forEach(field => {
+          const inp = document.createElement('input');
+          inp.type = 'hidden';
+          inp.name = field.name;
+          inp.value = field.value;
+          inp.dataset.itemIndex = idx;
+          additionalHiddenFieldsDiv.appendChild(inp);
+        });
+      });
+    }
+
+    function populateAdditionalFormFields(header) {
+      const invoiceNumber = header.invoice_no || '';
+      const invoiceDate = header.date || '';
+      const subtotal = header.subtotal || 0;
+      const tax = header.tax || 0;
+      const total = header.total || 0;
+
+      const fields = [
+        { name: 'invoice_number', value: invoiceNumber },
+        { name: 'invoice_date', value: invoiceDate },
+        { name: 'subtotal', value: subtotal },
+        { name: 'tax_amount', value: tax },
+        { name: 'total_amount', value: total },
+        { name: 'code_no', value: header.code_no || '' },
+        { name: 'reference', value: header.reference || '' }
+      ];
+
+      fields.forEach(field => {
+        let inp = additionalInvoiceForm.querySelector(`[name="${field.name}"]`);
+        if (!inp) {
+          inp = document.createElement('input');
+          inp.type = 'hidden';
+          inp.name = field.name;
+          additionalHiddenFieldsDiv.appendChild(inp);
+        }
+        inp.value = field.value;
+      });
+    }
+
+    function displayAdditionalPreview(header) {
+      document.getElementById('additionalPreviewInvoiceNumber').textContent = header.invoice_no || '-';
+      document.getElementById('additionalPreviewInvoiceDate').textContent = header.date || '-';
+      document.getElementById('additionalPreviewSubtotal').textContent = parseFloat(header.subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
+      document.getElementById('additionalPreviewTax').textContent = parseFloat(header.tax || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
+      document.getElementById('additionalPreviewTotal').textContent = parseFloat(header.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
+    }
+
+    additionalUploadBtn.addEventListener('click', async function() {
+      if (!additionalFileInput || !additionalFileInput.files || !additionalFileInput.files[0]) {
+        additionalErrorBox.style.display = 'block';
+        additionalErrorBox.innerHTML = '<i class="fa fa-warning me-2"></i>Please select a PDF file to upload.';
+        additionalErrorBox.className = 'alert alert-warning';
+        return;
+      }
+
+      const file = additionalFileInput.files[0];
+      const maxSize = parseInt(additionalFileInput.dataset.maxFileSize) || 50485760;
+
+      if (file.size > maxSize) {
+        additionalErrorBox.style.display = 'block';
+        additionalErrorBox.innerHTML = `<i class="fa fa-warning me-2"></i>File is too large. Maximum size is ${(maxSize / 1024 / 1024).toFixed(1)}MB.`;
+        additionalErrorBox.className = 'alert alert-warning';
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('csrfmiddlewaretoken', getCSRF());
+
+      setAdditionalProgress(10);
+      additionalUploadBtn.disabled = true;
+      additionalUploadBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-2"></i>Uploading...';
+
+      try {
+        const response = await fetch('/api/invoices/extract-preview/', {
+          method: 'POST',
+          body: formData
+        });
+
+        setAdditionalProgress(70);
+
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+          additionalErrorBox.style.display = 'none';
+          additionalSuccessMsg.style.display = 'block';
+          additionalPreviewSection.style.display = 'block';
+
+          const header = data.header || {};
+          const items = data.items || [];
+
+          displayAdditionalPreview(header);
+          populateAdditionalFormFields(header);
+          populateAdditionalLineItems(items);
+
+          addAdditionalInvoiceBtn.disabled = false;
+          setAdditionalProgress(100);
+
+          setTimeout(() => { setAdditionalProgress(0); }, 1000);
+        } else {
+          throw new Error(data.message || 'Failed to extract invoice data');
+        }
+      } catch (err) {
+        additionalErrorBox.style.display = 'block';
+        additionalErrorBox.innerHTML = '<i class="fa fa-exclamation-triangle me-2"></i>' + (err?.message || 'Failed to upload or extract invoice');
+        additionalErrorBox.className = 'alert alert-danger';
+        console.error('Upload error:', err);
+        setAdditionalProgress(0);
+      } finally {
+        additionalUploadBtn.disabled = false;
+        additionalUploadBtn.innerHTML = '<i class="fa fa-upload me-2"></i>Upload & Extract';
+      }
+    });
+
+    additionalInvoiceForm.addEventListener('submit', async function(e) {
+      e.preventDefault();
+
+      if (!additionalFileInput.files || !additionalFileInput.files[0]) {
+        additionalErrorBox.style.display = 'block';
+        additionalErrorBox.innerHTML = '<i class="fa fa-warning me-2"></i>No PDF file was uploaded or extracted.';
+        additionalErrorBox.className = 'alert alert-warning';
+        return;
+      }
+
+      addAdditionalInvoiceBtn.disabled = true;
+      const originalBtnText = addAdditionalInvoiceBtn.innerHTML;
+      addAdditionalInvoiceBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-2"></i>Adding...';
+
+      try {
+        const formData = new FormData(additionalInvoiceForm);
+
+        const response = await fetch(additionalInvoiceForm.action, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+          additionalErrorBox.style.display = 'none';
+          additionalSuccessMsg.innerHTML = '<i class="fa fa-check-circle me-2"></i>Invoice added successfully! Reloading...';
+          additionalSuccessMsg.style.display = 'block';
+
+          setTimeout(() => {
+            location.reload();
+          }, 1500);
+        } else {
+          throw new Error(data.message || 'Failed to add invoice');
+        }
+      } catch (err) {
+        additionalErrorBox.style.display = 'block';
+        additionalErrorBox.innerHTML = '<i class="fa fa-exclamation-triangle me-2"></i>' + (err?.message || 'Failed to add invoice');
+        additionalErrorBox.className = 'alert alert-danger';
+        console.error('Form submission error:', err);
+      } finally {
+        addAdditionalInvoiceBtn.disabled = false;
+        addAdditionalInvoiceBtn.innerHTML = originalBtnText;
+      }
+    });
+  })();
+
+  // ============================================================================
+  // SUPPORTING DOCUMENTS SIGNING FUNCTIONALITY (only for completed orders)
+  // ============================================================================
+  (function() {
+    const supportingDocSelectors = document.querySelectorAll('.supporting-doc-selector');
+    const supportingDocSelectedInfo = document.getElementById('supportingDocSelectedInfo');
+    const supportingDocSelectedName = document.getElementById('supportingDocSelectedName');
+    const supportingDocAttachmentId = document.getElementById('supportingDocAttachmentId');
+    const supportingDocSignatureData = document.getElementById('supportingDocSignatureData');
+    const signSupportingDocBtn = document.getElementById('footerSignSupportingDoc');
+    const supportingDocSignaturePad = document.getElementById('supportingDocSignaturePad');
+    const supportingDocContainer = document.getElementById('supportingDocSignContainer');
+    const supportingDocPreviewHost = document.getElementById('supportingDocPreviewHost');
+    const clearSupportingDocSignBtn = document.getElementById('clearSupportingDocSignatureBtn');
+    const supportingDocSignaturePreviewSmall = document.getElementById('supportingDocSignaturePreviewSmall');
+    const supportingDocSignPreviewMini = document.getElementById('supportingDocSignaturePreviewMini');
+    const supportingDocPreviewSection = document.getElementById('supportingDocPreviewSection');
+    const supportingDocSignPreviewHost = document.getElementById('supportingDocSignPreviewHost');
+
+    let currentSupportingDocFile = null;
+    let supportingDocSignatureCanvas = null;
+    let supportingDocPoints = [];
+    let supportingDocDrawing = false;
+    let supportingDocHasSignature = false;
+
+    // Document selector change handler
+    supportingDocSelectors.forEach(selector => {
+      selector.addEventListener('change', function() {
+        if (this.checked) {
+          supportingDocAttachmentId.value = this.dataset.attachmentId || '';
+          supportingDocSelectedName.textContent = this.dataset.docName || 'Selected Document';
+          supportingDocSelectedInfo.style.display = 'block';
+          displaySupportingDocPreview(this.dataset.docUrl);
+          resetSupportingDocSignature();
+        }
+      });
+    });
+
+    function displaySupportingDocPreview(docUrl) {
+      if (!docUrl) return;
+
+      supportingDocPreviewSection.style.display = 'block';
+      supportingDocPreviewHost.innerHTML = '';
+
+      const docName = docUrl.toLowerCase();
+      if (docName.includes('.pdf')) {
+        const iframe = document.createElement('iframe');
+        iframe.src = docUrl + '#toolbar=0&navpanes=0&scrollbar=0';
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+        iframe.style.border = 'none';
+        supportingDocPreviewHost.appendChild(iframe);
+      } else if (docName.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+        const img = document.createElement('img');
+        img.src = docUrl;
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '100%';
+        img.style.objectFit = 'contain';
+        supportingDocPreviewHost.appendChild(img);
+      } else {
+        supportingDocPreviewHost.innerHTML = '<div class="text-center text-muted"><i class="fa fa-file fa-3x mb-3"></i><p>Document preview not available</p></div>';
+      }
+    }
+
+    function createSupportingDocSignatureCanvas() {
+      if (supportingDocSignaturePad) {
+        supportingDocSignaturePad.style.display = 'block';
+        return supportingDocSignaturePad;
+      }
+      return null;
+    }
+
+    function resetSupportingDocSignature() {
+      supportingDocDrawing = false;
+      supportingDocHasSignature = false;
+      supportingDocPoints = [];
+      if (supportingDocSignaturePad) {
+        supportingDocSignaturePad.width = supportingDocSignaturePad.offsetWidth * window.devicePixelRatio;
+        supportingDocSignaturePad.height = supportingDocSignaturePad.offsetHeight * window.devicePixelRatio;
+        const ctx = supportingDocSignaturePad.getContext('2d');
+        ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        ctx.clearRect(0, 0, supportingDocSignaturePad.width, supportingDocSignaturePad.height);
+      }
+      if (clearSupportingDocSignBtn) clearSupportingDocSignBtn.style.display = 'none';
+      if (supportingDocSignaturePreviewSmall) supportingDocSignaturePreviewSmall.style.display = 'none';
+    }
+
+    function drawToSupportingDocPreview(x0, y0, x1, y1) {
+      if (!supportingDocSignPreviewMini) return;
+      const ctx = supportingDocSignPreviewMini.getContext('2d');
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
+
+    function setupSupportingDocCanvasEvents(canvas) {
+      if (!canvas) return;
+
+      canvas.addEventListener('mousedown', (e) => {
+        supportingDocDrawing = true;
+        supportingDocHasSignature = true;
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * window.devicePixelRatio;
+        const y = (e.clientY - rect.top) * window.devicePixelRatio;
+        supportingDocPoints.push({x, y});
+
+        const ctx = canvas.getContext('2d');
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+      });
+
+      canvas.addEventListener('mousemove', (e) => {
+        if (!supportingDocDrawing) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * window.devicePixelRatio;
+        const y = (e.clientY - rect.top) * window.devicePixelRatio;
+        supportingDocPoints.push({x, y});
+
+        const ctx = canvas.getContext('2d');
+        ctx.lineTo(x, y);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+
+        drawToSupportingDocPreview(supportingDocPoints[supportingDocPoints.length - 2]?.x || 0, supportingDocPoints[supportingDocPoints.length - 2]?.y || 0, x, y);
+      });
+
+      canvas.addEventListener('mouseup', () => {
+        if (supportingDocDrawing && supportingDocHasSignature) {
+          if (clearSupportingDocSignBtn) clearSupportingDocSignBtn.style.display = 'inline-block';
+          if (supportingDocSignaturePreviewSmall) supportingDocSignaturePreviewSmall.style.display = 'flex';
+        }
+        supportingDocDrawing = false;
+      });
+    }
+
+    function clearSupportingDocSignature() {
+      resetSupportingDocSignature();
+      if (supportingDocSignPreviewMini) {
+        const ctx = supportingDocSignPreviewMini.getContext('2d');
+        ctx.clearRect(0, 0, supportingDocSignPreviewMini.width, supportingDocSignPreviewMini.height);
+      }
+    }
+
+    if (clearSupportingDocSignBtn) {
+      clearSupportingDocSignBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        clearSupportingDocSignature();
+      });
+    }
+
+    // Sign and save supporting document
+    if (signSupportingDocBtn) {
+      signSupportingDocBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+
+        if (!supportingDocAttachmentId.value) {
+          alert('Please select a document to sign.');
+          return;
+        }
+
+        if (!supportingDocSignaturePad || !supportingDocHasSignature) {
+          alert('Please draw a signature.');
+          return;
+        }
+
+        const signatureDataUrl = supportingDocSignaturePad.toDataURL('image/png', 0.8);
+        supportingDocSignatureData.value = signatureDataUrl;
+
+        const formData = new FormData();
+        formData.append('attachment_id', supportingDocAttachmentId.value);
+        formData.append('signature_data', signatureDataUrl);
+        formData.append('csrfmiddlewaretoken', document.querySelector('[name="csrfmiddlewaretoken"]').value);
+
+        signSupportingDocBtn.disabled = true;
+        signSupportingDocBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-2"></i>Signing...';
+
+        fetch('{% url "tracker:sign_supporting_documents" pk=order.id %}', {
+          method: 'POST',
+          body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            alert('Document signed successfully!');
+            const modal = bootstrap.Modal.getInstance(document.getElementById('signSupportingDocsModal'));
+            if (modal) modal.hide();
+            location.reload();
+          } else {
+            alert('Error: ' + (data.error || 'Could not sign document'));
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          alert('Error signing document: ' + error.message);
+        })
+        .finally(() => {
+          signSupportingDocBtn.disabled = false;
+          signSupportingDocBtn.innerHTML = '<i class="fa fa-check-circle me-2"></i>Sign & Save Document';
+        });
+      });
+    }
+
+    // Handle supporting document sign button click
+    document.querySelectorAll('.supporting-doc-sign-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        resetSupportingDocSignature();
+        supportingDocSignaturePad = createSupportingDocSignatureCanvas();
+        if (supportingDocSignaturePad) {
+          setupSupportingDocCanvasEvents(supportingDocSignaturePad);
+        }
+      });
+    });
   })();
 
   // Initialize everything when DOM is loaded

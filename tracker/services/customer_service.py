@@ -580,7 +580,9 @@ class OrderService:
                     'priority': priority or 'medium',
                     'description': description or f"{order_type.title()} Order",
                     'estimated_duration': estimated_duration,
-                    'started_at': timezone.now(),  # Set started_at when order is created
+                    # Note: started_at should NOT be set here. It will be set automatically when the order
+                    # is auto-progressed from 'created' to 'in_progress' after 10 minutes by the middleware.
+                    # This ensures that started_at reflects when the order actually started being worked on.
                 }
 
                 # Add type-specific fields
