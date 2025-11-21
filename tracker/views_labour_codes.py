@@ -4,7 +4,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib import messages
 from django.http import JsonResponse
-from django.db import transaction
+from django.db import transaction, models
 from django.views.decorators.http import require_http_methods
 from .models import LabourCode
 from .forms import LabourCodeForm, LabourCodeCSVImportForm
