@@ -148,7 +148,7 @@ class OrderStartModal {
     this.currentStep = stepNumber;
 
     // Auto-fill extracted data if available
-    if (stepNumber === 3) {
+    if (stepNumber === 2) {
       this.prepareExtractedDataStep();
     }
   }
