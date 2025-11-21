@@ -118,38 +118,69 @@ def labour_code_delete(request, pk):
 @login_required
 @permission_required('tracker.add_labourcode', raise_exception=True)
 def labour_codes_import(request):
-    """Import labour codes from CSV file"""
+    """Import labour codes from CSV file or add manually"""
     import_stats = None
-    
+
     if request.method == 'POST':
-        form = LabourCodeCSVImportForm(request.POST, request.FILES)
-        if form.is_valid():
-            csv_file = request.FILES['csv_file']
-            clear_existing = form.cleaned_data.get('clear_existing', False)
-            
-            try:
-                import_stats = _process_csv_import(csv_file, clear_existing)
-                
-                if import_stats['success']:
-                    messages.success(
-                        request,
-                        f"Import completed! Created: {import_stats['created']}, "
-                        f"Updated: {import_stats['updated']}, "
-                        f"Errors: {import_stats['errors']}"
+        action = request.POST.get('action', '')
+
+        if action == 'manual':
+            # Handle manual entry
+            code = request.POST.get('code_manual', '').strip().upper()
+            description = request.POST.get('description_manual', '').strip()
+            category = request.POST.get('category_manual', '').strip().lower()
+            is_active = 'is_active_manual' in request.POST
+
+            if not code or not description or not category:
+                messages.error(request, 'Please fill in all required fields')
+            else:
+                try:
+                    obj, created = LabourCode.objects.update_or_create(
+                        code=code,
+                        defaults={
+                            'description': description,
+                            'category': category,
+                            'is_active': is_active,
+                        }
                     )
-                    if import_stats['error_details']:
-                        messages.warning(request, f"Issues found: {'; '.join(import_stats['error_details'][:5])}")
-                else:
-                    messages.error(request, f"Import failed: {import_stats['error_message']}")
-                
-                if not import_stats.get('keep_form'):
+                    if created:
+                        messages.success(request, f'Labour code {code} created successfully!')
+                    else:
+                        messages.success(request, f'Labour code {code} updated successfully!')
                     return redirect('tracker:labour_codes_list')
-            except Exception as e:
-                messages.error(request, f"Error processing CSV file: {str(e)}")
-                import_stats = None
+                except Exception as e:
+                    messages.error(request, f'Error saving labour code: {str(e)}')
+
+        elif action == 'import':
+            # Handle CSV import
+            form = LabourCodeCSVImportForm(request.POST, request.FILES)
+            if form.is_valid():
+                csv_file = request.FILES.get('csv_file')
+                clear_existing = form.cleaned_data.get('clear_existing', False)
+
+                if csv_file:
+                    try:
+                        import_stats = _process_csv_import(csv_file, clear_existing)
+
+                        if import_stats['success']:
+                            messages.success(
+                                request,
+                                f"Import completed! Created: {import_stats['created']}, "
+                                f"Updated: {import_stats['updated']}, "
+                                f"Errors: {import_stats['errors']}"
+                            )
+                            if import_stats['error_details']:
+                                messages.warning(request, f"Issues found: {'; '.join(import_stats['error_details'][:5])}")
+                        else:
+                            messages.error(request, f"Import failed: {import_stats['error_message']}")
+                    except Exception as e:
+                        messages.error(request, f"Error processing CSV file: {str(e)}")
+                        import_stats = None
+            else:
+                messages.error(request, 'Please provide a valid CSV file')
     else:
         form = LabourCodeCSVImportForm()
-    
+
     context = {
         'form': form,
         'import_stats': import_stats,
