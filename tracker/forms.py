@@ -1242,6 +1242,7 @@ class ProfileForm(forms.ModelForm):
 
 
 from django.db import IntegrityError
+from .models import LabourCode
 
 # Build default choices for customer type fields at import time, with safe fallback
 try:
