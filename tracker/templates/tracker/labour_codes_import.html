@@ -227,21 +227,65 @@ function downloadSampleCSV() {
         '21044,WHEEL BALANCE ALLOY RIMS,tyre service\n' +
         '21031,REPAIR & A/C PASSENGER,labour\n' +
         '32004,WHEEL BALANCE TRUCK,tyre service\n' +
-        '21003,WHEEL BALANCE TRUCK,tyre service';
-    
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'labour_codes_sample.csv';
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+        '21003,WHEEL BALANCE TRUCK,tyre service\n' +
+        '21037,TYRE FITTING-TRUCK,tyre service';
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'labour_codes_sample.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
-// Handle manual form submission
+function downloadSampleExcel() {
+    try {
+        const data = [
+            ['code', 'description', 'category'],
+            ['22007', 'OIL SERVICE (FILTER) FOR 4X4', 'labour'],
+            ['21044', 'WHEEL BALANCE ALLOY RIMS', 'tyre service'],
+            ['21031', 'REPAIR & A/C PASSENGER', 'labour'],
+            ['32004', 'WHEEL BALANCE TRUCK', 'tyre service'],
+            ['21003', 'WHEEL BALANCE TRUCK', 'tyre service'],
+            ['21037', 'TYRE FITTING-TRUCK', 'tyre service']
+        ];
+
+        let csv = data.map(row => row.map(cell => {
+            if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
+                return '"' + cell.replace(/"/g, '""') + '"';
+            }
+            return cell;
+        }).join(',')).join('\n');
+
+        const blob = new Blob([csv], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'labour_codes_sample.xlsx');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch (e) {
+        alert('Excel download not fully supported. Please use the CSV sample instead.');
+        downloadSampleCSV();
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+    const fileInput = document.querySelector('input[name="import_file"]');
+    if (fileInput) {
+        fileInput.addEventListener('change', function() {
+            const fileName = this.files[0]?.name || '';
+            if (fileName) {
+                console.log('Selected file:', fileName);
+            }
+        });
+    }
+
     const manualForm = document.querySelector('.labour-code-form');
     if (manualForm) {
         manualForm.addEventListener('submit', function(e) {
@@ -250,7 +294,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const code = document.getElementById('codeInput').value.trim();
                 const description = document.getElementById('descriptionInput').value.trim();
                 const category = document.getElementById('categoryInput').value.trim();
-                
+
                 if (!code || !description || !category) {
                     e.preventDefault();
                     alert('Please fill in all required fields');
