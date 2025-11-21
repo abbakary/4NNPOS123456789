@@ -739,3 +739,32 @@ class InvoicePayment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_payment_method_display()} - {self.amount}"
+
+
+class InquiryNote(models.Model):
+    """Timeline/notes for inquiry conversation threads"""
+    inquiry = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='notes', limit_choices_to={'type': 'inquiry'})
+    note_type = models.CharField(
+        max_length=16,
+        choices=[
+            ('response', 'Response'),
+            ('note', 'Internal Note'),
+            ('status_change', 'Status Change'),
+            ('attachment', 'Attachment Added'),
+        ],
+        default='note'
+    )
+    content = models.TextField()
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='inquiry_notes')
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_visible_to_customer = models.BooleanField(default=True, help_text="Whether customer can see this note in communication thread")
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['inquiry', '-created_at'], name='idx_inquiry_note_created'),
+            models.Index(fields=['note_type'], name='idx_inquiry_note_type'),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_note_type_display()} for Inquiry #{self.inquiry.id}"

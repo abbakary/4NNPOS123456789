@@ -380,7 +380,16 @@
                                     </ul>
                                 </li>
 
-
+                                <!-- Vehicle Tracking -->
+                                <li class="sidebar-list">
+                                    <i class="fa fa-truck"></i>
+                                    <a class="sidebar-link sidebar-title" href="{% url 'tracker:vehicle_tracking_dashboard' %}">
+                                        <svg class="stroke-icon">
+                                            <use href="{% static 'assets/svg/icon-sprite.svg' %}#stroke-chart"></use>
+                                        </svg>
+                                        <span>Vehicle Tracking</span>
+                                    </a>
+                                </li>
 
                                 <!-- System -->
                                 {% if user.is_superuser %}

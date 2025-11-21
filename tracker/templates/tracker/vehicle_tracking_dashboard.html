@@ -450,14 +450,15 @@
     <table id="vehiclesTable">
         <thead>
             <tr>
-                <th style="width: 5%;"></th>
-                <th style="width: 12%;">Plate Number</th>
-                <th style="width: 15%;">Customer</th>
-                <th style="width: 12%;">Service Type</th>
-                <th style="width: 10%;">Invoices</th>
-                <th style="width: 10%;">Status</th>
+                <th style="width: 4%;"></th>
+                <th style="width: 11%;">Plate Number</th>
+                <th style="width: 13%;">Customer</th>
+                <th style="width: 12%;">Service Types</th>
+                <th style="width: 8%;">Orders</th>
+                <th style="width: 8%;">Invoices</th>
+                <th style="width: 9%;">Status</th>
                 <th style="width: 12%; text-align: right;">Total Spent</th>
-                <th style="width: 14%; text-align: right;">Actions</th>
+                <th style="width: 11%; text-align: right;">Actions</th>
             </tr>
         </thead>
         <tbody id="vehiclesTableBody">
@@ -579,16 +580,22 @@ document.addEventListener('DOMContentLoaded', function() {
         vehicles.forEach((vehicle, idx) => {
             const row = document.createElement('tr');
             row.className = 'vehicle-row-expandable';
-            
-            const orderTypesBadges = vehicle.order_types.map(type => 
+
+            const orderTypesBadges = vehicle.order_types.map(type =>
                 `<span class="badge-custom badge-${type}">${type}</span>`
             ).join(' ');
-            
+
+            const serviceTypesBadges = vehicle.service_types && vehicle.service_types.length > 0
+                ? vehicle.service_types.map(type =>
+                    `<span class="badge-custom badge-service" style="font-size: 0.8rem;">${type}</span>`
+                ).join(' ')
+                : '<span style="color: #999;">-</span>';
+
             const returningBadge = vehicle.is_returning ? '<span class="badge-custom badge-returning">Returning</span>' : '';
-            
+
             const statusText = vehicle.order_stats.completed > 0 ? 'Completed' : 'Pending';
             const statusBadge = vehicle.order_stats.completed > 0 ? 'bg-success' : 'bg-warning';
-            
+
             row.innerHTML = `
                 <td style="text-align: center;">
                     <span class="expand-icon" onclick="toggleInvoiceDetails(${idx})">
@@ -597,8 +604,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 </td>
                 <td><strong>${vehicle.plate_number}</strong></td>
                 <td>${vehicle.customer_name}</td>
-                <td>${orderTypesBadges}</td>
-                <td style="text-align: center;">${vehicle.invoice_count}</td>
+                <td>${serviceTypesBadges}</td>
+                <td style="text-align: center;"><strong>${vehicle.order_count || 0}</strong></td>
+                <td style="text-align: center;"><strong>${vehicle.invoice_count}</strong></td>
                 <td><span class="badge ${statusBadge}">${statusText}</span> ${returningBadge}</td>
                 <td style="text-align: right;"><strong>${formatCurrency(vehicle.total_spent)}</strong></td>
                 <td style="text-align: right;">
@@ -621,33 +629,52 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="invoice-number">${invoice.invoice_number}</div>
                             <div class="invoice-date">${new Date(invoice.invoice_date).toLocaleDateString()}</div>
                         </div>
-                        <div class="invoice-amount">${formatCurrency(invoice.total_amount)}</div>
+                        <div>
+                            <div class="invoice-amount">${formatCurrency(invoice.total_amount)}</div>
+                            <div style="font-size: 0.85rem; color: #666; margin-top: 5px;">
+                                Tax: ${formatCurrency(invoice.tax_amount)}
+                            </div>
+                        </div>
                     </div>
-                    <div style="font-size: 0.9rem; color: #666;">
-                        Reference: ${invoice.reference || 'N/A'} | Order: ${invoice.order_number || 'N/A'}
+                    <div style="font-size: 0.9rem; color: #666; margin-bottom: 10px;">
+                        <div>Reference: <strong>${invoice.reference || 'N/A'}</strong></div>
+                        <div>Order: <strong>${invoice.order_number || 'N/A'}</strong></div>
+                        ${invoice.categories && invoice.categories.length > 0 ? `
+                            <div style="margin-top: 8px;">
+                                Categories: ${invoice.categories.map(cat => `<span class="badge-custom badge-service" style="font-size: 0.75rem;">${cat}</span>`).join(' ')}
+                            </div>
+                        ` : ''}
                     </div>
                     <table class="line-items-table">
                         <thead>
                             <tr>
                                 <th>Code</th>
                                 <th>Description</th>
-                                <th>Qty</th>
-                                <th>Unit Price</th>
+                                <th>Category</th>
+                                <th style="text-align: center;">Qty</th>
+                                <th style="text-align: right;">Unit Price</th>
                                 <th style="text-align: right;">Total</th>
+                                <th style="text-align: right;">Tax</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${invoice.line_items.map(item => `
                                 <tr>
-                                    <td><code>${item.code}</code></td>
-                                    <td>${item.description}</td>
-                                    <td>${item.qty}</td>
-                                    <td>${formatCurrency(item.unit_price)}</td>
-                                    <td style="text-align: right;">${formatCurrency(item.total)}</td>
+                                    <td><code style="font-size: 0.85rem;">${item.code || '-'}</code></td>
+                                    <td style="font-size: 0.9rem;">${item.description}</td>
+                                    <td><span class="badge-custom badge-service" style="font-size: 0.75rem;">${item.category}</span></td>
+                                    <td style="text-align: center;">${item.qty}</td>
+                                    <td style="text-align: right;">${formatCurrency(item.unit_price)}</td>
+                                    <td style="text-align: right;"><strong>${formatCurrency(item.total)}</strong></td>
+                                    <td style="text-align: right;">${formatCurrency(item.tax_amount)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
                     </table>
+                    <div style="margin-top: 10px; font-size: 0.9rem; text-align: right; border-top: 1px solid #eee; padding-top: 10px;">
+                        <div>Subtotal: <strong>${formatCurrency(invoice.subtotal)}</strong></div>
+                        <div>Total: <strong style="color: #28a745;">${formatCurrency(invoice.total_amount)}</strong></div>
+                    </div>
                 </div>
             `).join('');
             

@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from tracker.models import Vehicle, Order, Invoice, InvoiceLineItem, LabourCode, Customer
 from tracker.utils.order_type_detector import _normalize_category_to_order_type
-from tracker.utils.auth import get_user_branch
+from .utils import get_user_branch
 
 logger = logging.getLogger(__name__)
 
@@ -109,10 +109,13 @@ def api_vehicle_tracking_data(request):
         except:
             start_date = end_date - timedelta(days=30)
         
-        # Query vehicles that have invoices or orders (service-type vehicles)
+        # Query vehicles that came for service:
+        # 1. Vehicles with invoices (uploaded invoices = service reference)
+        # 2. Vehicles with service-type orders
+        # 3. Vehicles in both categories
         vehicles_query = Vehicle.objects.filter(
-            Q(invoices__isnull=False) | Q(orders__type='service'),
-            invoices__invoice_date__range=[start_date, end_date] if period != 'all' else Q()
+            Q(invoices__invoice_date__range=[start_date, end_date]) |
+            Q(orders__created_at__date__range=[start_date, end_date], orders__type='service')
         ).distinct()
         
         if user_branch:
@@ -142,46 +145,87 @@ def api_vehicle_tracking_data(request):
             orders = vehicle.orders.filter(
                 created_at__date__range=[start_date, end_date]
             )
-            
+
             if user_branch:
                 orders = orders.filter(branch=user_branch)
-            
-            if not invoices.exists() and not orders.exists():
+
+            # Also check for orders linked through invoices
+            order_links_via_invoices = Order.objects.filter(
+                invoices__vehicle=vehicle,
+                invoices__invoice_date__range=[start_date, end_date]
+            ).distinct()
+
+            if user_branch:
+                order_links_via_invoices = order_links_via_invoices.filter(branch=user_branch)
+
+            # Combine orders from both sources
+            all_orders = orders.union(order_links_via_invoices).order_by('-created_at')
+
+            if not invoices.exists() and not all_orders.exists():
                 continue
-            
+
             # Calculate vehicle metrics
             total_spent = invoices.aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
             invoice_count = invoices.count()
-            
-            # Get order statistics
+
+            # Get order statistics from all orders
             order_stats = {
-                'completed': orders.filter(status='completed').count(),
-                'in_progress': orders.filter(status='in_progress').count(),
-                'pending': orders.filter(status='created').count(),
-                'overdue': orders.filter(status='overdue').count(),
-                'cancelled': orders.filter(status='cancelled').count(),
+                'completed': all_orders.filter(status='completed').count(),
+                'in_progress': all_orders.filter(status='in_progress').count(),
+                'pending': all_orders.filter(status='created').count(),
+                'overdue': all_orders.filter(status='overdue').count(),
+                'cancelled': all_orders.filter(status='cancelled').count(),
             }
-            
-            # Get order types
+
+            # Get order types and service types
             order_types = set()
-            for order in orders:
+            service_types = set()
+
+            for order in all_orders:
                 order_types.add(order.type)
+
+                # Extract service types from service orders
+                if order.type == 'service':
+                    # Try to get service type from order description or mixed_categories
+                    if order.mixed_categories:
+                        try:
+                            categories = json.loads(order.mixed_categories)
+                            for cat in categories:
+                                service_types.add(cat)
+                        except:
+                            pass
             
             # Get invoice data with line items
             invoice_list = []
             for invoice in invoices:
                 line_items = InvoiceLineItem.objects.filter(invoice=invoice)
-                
+
                 # Get categories for line items
                 categories = set()
+                line_items_data = []
+
                 for item in line_items:
-                    try:
-                        labour_code = LabourCode.objects.filter(code=item.item_code).first()
+                    # Try to find labor code for this item
+                    category = 'Service'
+                    labour_code = None
+
+                    if item.code:
+                        labour_code = LabourCode.objects.filter(code__iexact=item.code).first()
                         if labour_code:
-                            categories.add(labour_code.category)
-                    except:
-                        pass
-                
+                            category = labour_code.category
+                            categories.add(category)
+
+                    line_items_data.append({
+                        'code': item.code or '',
+                        'description': item.description,
+                        'qty': float(item.quantity),
+                        'unit_price': float(item.unit_price),
+                        'total': float(item.line_total),
+                        'category': category,
+                        'tax_rate': float(item.tax_rate) if item.tax_rate else 0,
+                        'tax_amount': float(item.tax_amount) if item.tax_amount else 0,
+                    })
+
                 invoice_dict = {
                     'invoice_number': invoice.invoice_number,
                     'invoice_date': invoice.invoice_date.isoformat(),
@@ -193,18 +237,8 @@ def api_vehicle_tracking_data(request):
                     'order_id': invoice.order_id,
                     'order_number': invoice.order.order_number if invoice.order else '',
                     'line_items_count': line_items.count(),
-                    'categories': sorted(list(categories)),
-                    'line_items': [
-                        {
-                            'code': item.item_code,
-                            'description': item.item_description,
-                            'qty': float(item.item_qty),
-                            'unit_price': float(item.item_price),
-                            'total': float(item.item_value),
-                            'category': next((lc.category for lc in LabourCode.objects.filter(code=item.item_code)), 'Sales')
-                        }
-                        for item in line_items
-                    ]
+                    'categories': sorted(list(categories)) if categories else ['Service'],
+                    'line_items': line_items_data
                 }
                 invoice_list.append(invoice_dict)
             
@@ -237,7 +271,9 @@ def api_vehicle_tracking_data(request):
                 'is_returning': is_returning,
                 'order_stats': order_stats,
                 'order_types': sorted(list(order_types)),
+                'service_types': sorted(list(service_types)) if service_types else [],
                 'invoices': invoice_list,
+                'order_count': all_orders.count(),
             }
             
             vehicle_data.append(vehicle_dict)

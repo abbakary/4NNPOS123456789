@@ -66,6 +66,10 @@ urlpatterns = [
     path("inquiries/<int:pk>/", views.inquiry_detail, name="inquiry_detail"),
     path("inquiries/<int:pk>/respond/", views.inquiry_respond, name="inquiry_respond"),
     path("inquiries/<int:pk>/status/", views.update_inquiry_status, name="update_inquiry_status"),
+    path("api/inquiries/create/", views.api_create_inquiry, name="api_create_inquiry"),
+    path("api/inquiries/<int:pk>/notes/", views.api_inquiry_notes, name="api_inquiry_notes"),
+    path("api/inquiries/<int:pk>/notes/add/", views.api_add_inquiry_note, name="api_add_inquiry_note"),
+    path("api/inquiries/bulk-action/", views.api_inquiry_bulk_action, name="api_inquiry_bulk_action"),
 
     # Inventory (manager/admin)
     path("inventory/", views.inventory_list, name="inventory_list"),
