@@ -47,6 +47,12 @@ class OrderStartModal {
       });
     }
 
+    // Continue as new order for existing vehicle
+    const continueAsNewBtn = document.getElementById('continueAsNewBtn');
+    if (continueAsNewBtn) {
+      continueAsNewBtn.addEventListener('click', () => self.continueAsNewOrder());
+    }
+
     // Customer type selection
     document.querySelectorAll('.customer-type-option').forEach(option => {
       option.addEventListener('click', function(e) {
