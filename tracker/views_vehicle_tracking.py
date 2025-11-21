@@ -142,30 +142,55 @@ def api_vehicle_tracking_data(request):
             orders = vehicle.orders.filter(
                 created_at__date__range=[start_date, end_date]
             )
-            
+
             if user_branch:
                 orders = orders.filter(branch=user_branch)
-            
-            if not invoices.exists() and not orders.exists():
+
+            # Also check for orders linked through invoices
+            order_links_via_invoices = Order.objects.filter(
+                invoices__vehicle=vehicle,
+                invoices__invoice_date__range=[start_date, end_date]
+            ).distinct()
+
+            if user_branch:
+                order_links_via_invoices = order_links_via_invoices.filter(branch=user_branch)
+
+            # Combine orders from both sources
+            all_orders = orders.union(order_links_via_invoices).order_by('-created_at')
+
+            if not invoices.exists() and not all_orders.exists():
                 continue
-            
+
             # Calculate vehicle metrics
             total_spent = invoices.aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
             invoice_count = invoices.count()
-            
-            # Get order statistics
+
+            # Get order statistics from all orders
             order_stats = {
-                'completed': orders.filter(status='completed').count(),
-                'in_progress': orders.filter(status='in_progress').count(),
-                'pending': orders.filter(status='created').count(),
-                'overdue': orders.filter(status='overdue').count(),
-                'cancelled': orders.filter(status='cancelled').count(),
+                'completed': all_orders.filter(status='completed').count(),
+                'in_progress': all_orders.filter(status='in_progress').count(),
+                'pending': all_orders.filter(status='created').count(),
+                'overdue': all_orders.filter(status='overdue').count(),
+                'cancelled': all_orders.filter(status='cancelled').count(),
             }
-            
-            # Get order types
+
+            # Get order types and service types
             order_types = set()
-            for order in orders:
+            service_types = set()
+
+            for order in all_orders:
                 order_types.add(order.type)
+
+                # Extract service types from service orders
+                if order.type == 'service':
+                    # Try to get service type from order description or mixed_categories
+                    if order.mixed_categories:
+                        try:
+                            categories = json.loads(order.mixed_categories)
+                            for cat in categories:
+                                service_types.add(cat)
+                        except:
+                            pass
             
             # Get invoice data with line items
             invoice_list = []
