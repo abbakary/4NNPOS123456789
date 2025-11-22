@@ -365,10 +365,12 @@ def api_vehicle_analytics(request):
         invoices_qs = Invoice.objects.filter(
             invoice_date__range=[start_date, end_date]
         )
-        
+
         if user_branch:
             invoices_qs = invoices_qs.filter(branch=user_branch)
-        
+
+        logger.info(f"Analytics - Invoices in range {start_date} to {end_date}: {invoices_qs.count()}")
+
         # Aggregate by time period
         if period == 'daily':
             trunc_field = TruncDate('invoice_date')
