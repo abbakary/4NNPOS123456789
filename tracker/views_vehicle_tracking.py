@@ -291,7 +291,9 @@ def api_vehicle_tracking_data(request):
         
         # Sort by total spent (descending)
         vehicle_data.sort(key=lambda x: x['total_spent'], reverse=True)
-        
+
+        logger.info(f"Final vehicle_data count: {len(vehicle_data)}")
+
         # Calculate summary statistics
         summary = {
             'total_vehicles': len(vehicle_data),
@@ -305,7 +307,9 @@ def api_vehicle_tracking_data(request):
                 'overdue': sum(v['order_stats']['overdue'] for v in vehicle_data),
             }
         }
-        
+
+        logger.info(f"Summary: {summary}")
+
         return JsonResponse({
             'success': True,
             'data': vehicle_data,
