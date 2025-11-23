@@ -291,16 +291,34 @@ class CustomerService:
         """
         Update customer's visit tracking information.
         Call this whenever a customer interacts with the system (creates order, etc.)
+        Only increments total_visits once per day to track distinct visit days, not order count.
         """
         if not customer:
             return
 
         try:
+            from django.utils import timezone as tz_module
             now = timezone.now()
+            today = tz_module.localdate(now) if hasattr(tz_module, 'localdate') else now.date()
+
+            # Check if customer already visited today
+            last_visit_today = False
+            if customer.last_visit:
+                try:
+                    last_visit_date = customer.last_visit.date() if hasattr(customer.last_visit, 'date') else customer.last_visit
+                    last_visit_today = (last_visit_date == today)
+                except Exception:
+                    last_visit_today = False
+
+            # Update last_visit and arrival_time
             customer.last_visit = now
-            customer.total_visits = (customer.total_visits or 0) + 1
             customer.arrival_time = now
             customer.current_status = 'arrived'
+
+            # Only increment total_visits if this is a new visit day
+            if not last_visit_today:
+                customer.total_visits = (customer.total_visits or 0) + 1
+
             customer.save(update_fields=['last_visit', 'total_visits', 'arrival_time', 'current_status'])
         except Exception as e:
             logger.warning(f"Error updating customer visit: {e}")
