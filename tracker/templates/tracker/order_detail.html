@@ -525,13 +525,14 @@
                   <table class="table table-sm table-hover mb-0 invoice-line-items-table" style="table-layout: fixed;">
                     <thead class="table-light">
                       <tr style="background-color: #f8f9fa;">
-                        <th class="col-line-item-sr" style="width: 6%; text-align: center;">#</th>
-                        <th class="col-line-item-code" style="width: 12%;">Code</th>
-                        <th class="col-line-item-desc" style="width: 40%; word-break: break-word;">Description</th>
-                        <th class="col-line-item-unit" style="width: 10%;">Unit</th>
-                        <th class="col-line-item-qty" style="width: 10%; text-align: center;">Qty</th>
-                        <th class="col-line-item-rate" style="width: 12%; text-align: right;">Unit Price</th>
-                        <th class="col-line-item-total" style="width: 10%; text-align: right;">Total</th>
+                        <th class="col-line-item-sr" style="width: 5%; text-align: center;">#</th>
+                        <th class="col-line-item-code" style="width: 10%;">Code</th>
+                        <th class="col-line-item-desc" style="width: 35%; word-break: break-word;">Description</th>
+                        <th class="col-line-item-type" style="width: 10%;">Type</th>
+                        <th class="col-line-item-unit" style="width: 8%;">Unit</th>
+                        <th class="col-line-item-qty" style="width: 8%; text-align: center;">Qty</th>
+                        <th class="col-line-item-rate" style="width: 11%; text-align: right;">Unit Price</th>
+                        <th class="col-line-item-total" style="width: 9%; text-align: right;">Total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -541,6 +542,30 @@
                         <td class="col-line-item-code"><small class="text-muted">{{ item.code|default:'-' }}</small></td>
                         <td class="col-line-item-desc" style="word-break: break-word; white-space: normal; overflow-wrap: break-word;">
                           <small class="text-dark">{{ item.description|default:'-' }}</small>
+                        </td>
+                        <td class="col-line-item-type" style="text-align: center;">
+                          {% if item.code %}
+                            <script>
+                            (function() {
+                              const code = '{{ item.code }}';
+                              const td = document.currentScript.parentElement;
+                              fetch('{% url "tracker:api_get_item_code_type" %}?code=' + encodeURIComponent(code))
+                                .then(r => r.json())
+                                .then(data => {
+                                  if (data.order_type) {
+                                    const types = { 'labour': { text: 'Labour', badge: 'bg-info', icon: 'fa-tools' }, 'service': { text: 'Service', badge: 'bg-primary', icon: 'fa-wrench' }, 'sales': { text: 'Sales', badge: 'bg-success', icon: 'fa-shopping-cart' } };
+                                    const type = types[data.order_type] || types['sales'];
+                                    td.innerHTML = `<span class="badge ${type.badge} rounded-pill"><i class="fa ${type.icon} me-1"></i>${type.text}</span>`;
+                                  } else {
+                                    td.innerHTML = '<small class="text-muted">-</small>';
+                                  }
+                                }).catch(() => td.innerHTML = '<small class="text-muted">-</small>');
+                            })();
+                            </script>
+                            <small class="text-muted">Loading...</small>
+                          {% else %}
+                            <small class="text-muted">-</small>
+                          {% endif %}
                         </td>
                         <td class="col-line-item-unit"><small class="text-muted">{{ item.unit|default:'-' }}</small></td>
                         <td class="col-line-item-qty" style="text-align: center;"><small class="fw-semibold">{{ item.quantity|default:'1' }}</small></td>
