@@ -435,28 +435,32 @@ def api_create_invoice_from_upload(request):
                 except Exception as e:
                     logger.warning(f"Failed to update customer code with extracted code_no: {e}")
 
-            # Extract plate from reference if not explicitly provided
+            # Extract plate from reference field in the invoice
             # The reference field from invoice may contain the vehicle plate number
             # This is important for vehicle tracking - we use the actual plate from the invoice
             extracted_plate_from_reference = None
-            if not plate:
-                reference = request.POST.get('reference', '').strip().upper()
-                if reference:
-                    # Remove 'FOR' prefix if present (common in invoices like "FOR T 290 EJF")
-                    cleaned_ref = reference
-                    if cleaned_ref.startswith('FOR '):
-                        cleaned_ref = cleaned_ref[4:].strip()
-                    elif cleaned_ref.startswith('FOR'):
-                        cleaned_ref = cleaned_ref[3:].strip()
+            reference = request.POST.get('reference', '').strip().upper()
+            if reference:
+                # Remove 'FOR' prefix if present (common in invoices like "FOR T 290 EJF")
+                cleaned_ref = reference
+                if cleaned_ref.startswith('FOR '):
+                    cleaned_ref = cleaned_ref[4:].strip()
+                elif cleaned_ref.startswith('FOR'):
+                    cleaned_ref = cleaned_ref[3:].strip()
 
-                    # Check if cleaned reference looks like a plate number
-                    # Typical format: 2-3 letters + 3-4 digits (e.g., ABC123, T123ABC)
-                    if re.match(r'^[A-Z]{1,3}\s*-?\s*\d{1,4}[A-Z]?$', cleaned_ref) or \
-                       re.match(r'^[A-Z]{1,3}\d{3,4}$', cleaned_ref) or \
-                       re.match(r'^\d{1,4}[A-Z]{2,3}$', cleaned_ref):
-                        plate = cleaned_ref.replace('-', '').replace(' ', '')
-                        extracted_plate_from_reference = plate
-                        logger.info(f"Extracted vehicle plate from reference field: {plate} (original: {reference})")
+                # Check if cleaned reference looks like a plate number
+                # Typical format: 2-3 letters + 3-4 digits (e.g., ABC123, T123ABC)
+                if re.match(r'^[A-Z]{1,3}\s*-?\s*\d{1,4}[A-Z]?$', cleaned_ref) or \
+                   re.match(r'^[A-Z]{1,3}\d{3,4}$', cleaned_ref) or \
+                   re.match(r'^\d{1,4}[A-Z]{2,3}$', cleaned_ref):
+                    extracted_plate = cleaned_ref.replace('-', '').replace(' ', '')
+                    extracted_plate_from_reference = extracted_plate
+                    logger.info(f"Extracted vehicle plate from reference field: {extracted_plate} (original: {reference})")
+
+                    # If no explicit plate was provided, use the extracted one
+                    if not plate:
+                        plate = extracted_plate
+                        logger.info(f"Using extracted plate from reference: {plate}")
 
             # Get or create vehicle if plate provided
             # The plate number is extracted from the invoice Reference field
