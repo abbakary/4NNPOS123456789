@@ -116,13 +116,12 @@ def api_vehicle_tracking_data(request):
 
         logger.info(f"Vehicle tracking query - Period: {period}, Date range: {start_date} to {end_date}, Search: '{search_query}'")
 
-        # Query vehicles that came for service:
-        # 1. Vehicles with invoices (uploaded invoices = service reference)
-        # 2. Vehicles with service-type orders
-        # 3. Vehicles in both categories
+        # Query vehicles that came for service based on invoices:
+        # The vehicle is identified by the plate number (reference field) from the invoice
+        # We track all vehicles with invoices in the date range, regardless of order type
+        # (invoices can be associated with orders of any type: service, sales, labour, mixed, etc.)
         vehicles_query = Vehicle.objects.filter(
-            Q(invoices__invoice_date__range=[start_date, end_date]) |
-            Q(orders__created_at__date__range=[start_date, end_date], orders__type='service')
+            invoices__invoice_date__range=[start_date, end_date]
         ).distinct()
 
         if user_branch:
@@ -153,7 +152,7 @@ def api_vehicle_tracking_data(request):
             if user_branch:
                 invoices = invoices.filter(branch=user_branch)
             
-            # Get all orders for this vehicle in the date range
+            # Get all orders for this vehicle in the date range (any type: service, sales, labour, mixed, inquiry)
             orders = vehicle.orders.filter(
                 created_at__date__range=[start_date, end_date]
             )
@@ -161,7 +160,8 @@ def api_vehicle_tracking_data(request):
             if user_branch:
                 orders = orders.filter(branch=user_branch)
 
-            # Also check for orders linked through invoices
+            # Also get orders linked through invoices in the same date range
+            # This captures orders that are associated with invoices (the primary way to track vehicles)
             order_links_via_invoices = Order.objects.filter(
                 invoices__vehicle=vehicle,
                 invoices__invoice_date__range=[start_date, end_date]
@@ -170,7 +170,30 @@ def api_vehicle_tracking_data(request):
             if user_branch:
                 order_links_via_invoices = order_links_via_invoices.filter(branch=user_branch)
 
-            # Combine orders from both sources
+            # Calculate order statistics BEFORE union (Django doesn't support filter after union)
+            def _count_by_status(qs):
+                return {
+                    'completed': qs.filter(status='completed').count(),
+                    'in_progress': qs.filter(status='in_progress').count(),
+                    'pending': qs.filter(status='created').count(),
+                    'overdue': qs.filter(status='overdue').count(),
+                    'cancelled': qs.filter(status='cancelled').count(),
+                }
+
+            # Get stats from both sources and combine them
+            orders_stats = _count_by_status(orders)
+            invoice_links_stats = _count_by_status(order_links_via_invoices)
+
+            # Combine stats from both sources (sum the counts)
+            order_stats = {
+                'completed': orders_stats['completed'] + invoice_links_stats['completed'],
+                'in_progress': orders_stats['in_progress'] + invoice_links_stats['in_progress'],
+                'pending': orders_stats['pending'] + invoice_links_stats['pending'],
+                'overdue': orders_stats['overdue'] + invoice_links_stats['overdue'],
+                'cancelled': orders_stats['cancelled'] + invoice_links_stats['cancelled'],
+            }
+
+            # Combine orders from both sources for iteration
             all_orders = orders.union(order_links_via_invoices).order_by('-created_at')
 
             if not invoices.exists() and not all_orders.exists():
@@ -180,32 +203,24 @@ def api_vehicle_tracking_data(request):
             total_spent = invoices.aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
             invoice_count = invoices.count()
 
-            # Get order statistics from all orders
-            order_stats = {
-                'completed': all_orders.filter(status='completed').count(),
-                'in_progress': all_orders.filter(status='in_progress').count(),
-                'pending': all_orders.filter(status='created').count(),
-                'overdue': all_orders.filter(status='overdue').count(),
-                'cancelled': all_orders.filter(status='cancelled').count(),
-            }
-
-            # Get order types and service types
+            # Get order types and categories from all orders
+            # Note: vehicles are identified by plate number from invoice reference field,
+            # regardless of order type. Orders can be service, sales, labour, mixed, or inquiry.
             order_types = set()
             service_types = set()
 
             for order in all_orders:
                 order_types.add(order.type)
 
-                # Extract service types from service orders
-                if order.type == 'service':
-                    # Try to get service type from order description or mixed_categories
-                    if order.mixed_categories:
-                        try:
-                            categories = json.loads(order.mixed_categories)
-                            for cat in categories:
-                                service_types.add(cat)
-                        except:
-                            pass
+                # Extract categories from order's mixed_categories field
+                # This captures the actual service/labour categories detected from invoice items
+                if order.mixed_categories:
+                    try:
+                        categories = json.loads(order.mixed_categories)
+                        for cat in categories:
+                            service_types.add(cat)
+                    except:
+                        pass
             
             # Get invoice data with line items
             invoice_list = []
