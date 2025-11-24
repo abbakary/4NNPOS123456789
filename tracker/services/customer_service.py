@@ -397,6 +397,74 @@ class OrderService:
     """Service for managing order creation with proper customer and vehicle handling."""
 
     @staticmethod
+    def update_order_vehicle_from_plate(
+        order: Order,
+        new_plate_number: str,
+        customer: Customer,
+        make: Optional[str] = None,
+        model: Optional[str] = None,
+        vehicle_type: Optional[str] = None
+    ) -> Order:
+        """
+        Update an order's vehicle if the extracted plate number differs from current plate.
+        Used when uploading invoice with a different/corrected plate than the started order.
+
+        This ensures vehicle tracking is accurate - if the actual vehicle plate differs from
+        the plate used to start the order, the order gets linked to the correct vehicle.
+
+        Args:
+            order: The Order to update
+            new_plate_number: The extracted/corrected plate number from invoice
+            customer: The customer who owns the vehicle
+            make: Vehicle make (optional, only updates if not set)
+            model: Vehicle model (optional, only updates if not set)
+            vehicle_type: Vehicle type (optional, only updates if not set)
+
+        Returns:
+            The updated Order (or original if no change needed)
+        """
+        if not order or not new_plate_number or not customer:
+            return order
+
+        new_plate_number = (new_plate_number or "").strip().upper()
+        if not new_plate_number:
+            return order
+
+        try:
+            with transaction.atomic():
+                # Check if order already has a vehicle with the same plate (no change needed)
+                if order.vehicle and order.vehicle.plate_number.upper() == new_plate_number:
+                    logger.info(f"Order {order.id} already has vehicle with plate {new_plate_number}, no update needed")
+                    return order
+
+                # Get or create the vehicle with the new plate
+                new_vehicle = VehicleService.create_or_get_vehicle(
+                    customer=customer,
+                    plate_number=new_plate_number,
+                    make=make,
+                    model=model,
+                    vehicle_type=vehicle_type
+                )
+
+                if new_vehicle and new_vehicle != order.vehicle:
+                    old_vehicle = order.vehicle
+                    old_plate = old_vehicle.plate_number if old_vehicle else "unknown"
+
+                    # Update the order with the new vehicle
+                    order.vehicle = new_vehicle
+                    order.save(update_fields=['vehicle'])
+
+                    logger.info(
+                        f"Updated order {order.id} vehicle from {old_plate} to {new_plate_number} "
+                        f"based on extracted invoice reference"
+                    )
+
+                return order
+        except Exception as e:
+            logger.error(f"Error updating order vehicle from plate: {e}")
+            return order
+
+    @staticmethod
     def find_started_order_by_plate(
         branch: Optional[Branch],
         plate_number: str,
